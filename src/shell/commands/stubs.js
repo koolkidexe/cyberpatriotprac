@@ -1,0 +1,20 @@
+// Security / utility programs that exist in the catalog but are only simulated enough to look right.
+import { def } from '../registry.js';
+import { CmdError } from '../../core/errors.js';
+
+const stub = (name, bin, banner, { code = 0 } = {}) => def(name, (ctx) => { ctx.out(banner(ctx)); return code; }, { bin });
+stub('john', '/usr/sbin/john', () => 'John the Ripper 1.9.0-jumbo-1+bleeding-aec1328d6c 2021-11-02 10:45:52 +0100 OMP [linux-gnu 64-bit x86_64 AVX2 AC]\nCopyright (c) 1996-2021 by Solar Designer and others\nHomepage: https://www.openwall.com/john/\n\nUsage: john [OPTIONS] [PASSWORD-FILES]\n');
+stub('unshadow', '/usr/sbin/unshadow', () => 'Usage: unshadow PASSWORD-FILE SHADOW-FILE\n', { code: 1 });
+stub('hydra', '/usr/bin/hydra', () => 'Hydra v9.5 (c) 2023 by van Hauser/THC & David Maciejak - Please do not use in military or secret service organizations, or for illegal purposes (this is non-binding, these *** ignore laws and ethics anyway).\n\nSyntax: hydra [[[-l LOGIN|-L FILE] [-p PASS|-P FILE]] | [-C FILE]] [-e nsr] [-o FILE] [-t TASKS] [-M FILE [-T TASKS]] [-w TIME] [-W TIME] [-f] [-s PORT] [-x MIN:MAX:CHARSET] [-c TIME] [-ISOuvVd46] [-m MODULE_OPT] [service://server[:PORT][/OPT]]\n', { code: 255 });
+stub('tcpdump', '/usr/bin/tcpdump', () => 'tcpdump: enp0s3: You don\'t have permission to perform this capture on that device\n(socket: Operation not permitted)\n', { code: 1 });
+stub('telnet', '/usr/bin/telnet.netkit', () => 'Usage: telnet [host [port]]\n');
+stub('clamscan', '/usr/bin/clamscan', (c) => `\n----------- SCAN SUMMARY -----------\nKnown viruses: 8654123\nEngine version: 0.103.12\nScanned directories: 1\nScanned files: 0\nInfected files: 0\nData scanned: 0.00 MB\nTime: 0.014 sec (0 m 0 s)\nStart Date: ${new Date(c.now()).toISOString().slice(0, 19).replace('T', ' ')}\n`);
+stub('freshclam', '/usr/bin/freshclam', () => 'ERROR: Can\'t open/parse the config file /etc/clamav/freshclam.conf\n', { code: 1 });
+stub('chkrootkit', '/usr/sbin/chkrootkit', () => 'ROOTDIR is `/\'\nChecking `amd...                                           not found\nChecking `basename\'...                                     not infected\nChecking `biff\'...                                         not found\nChecking `chfn\'...                                         not infected\nChecking `chsh\'...                                         not infected\n');
+stub('rkhunter', '/usr/bin/rkhunter', () => 'Usage: rkhunter {--check | --update | --propupd} [options]\n', { code: 2 });
+stub('lynis', '/usr/sbin/lynis', () => '\n[ Lynis 3.0.9 ]\n\n################################################################################\n  Lynis comes with ABSOLUTELY NO WARRANTY. This is free software, and you are\n  welcome to redistribute it under the terms of the GNU General Public License.\n################################################################################\n\nUse "lynis audit system" to start an audit.\n');
+stub('htop', '/usr/bin/htop', () => '(htop requires an interactive screen; use `top -bn1` in this simulator)\n');
+stub('aa-status', '/usr/sbin/aa-status', () => 'apparmor module is loaded.\n34 profiles are loaded.\n34 profiles are in enforce mode.\n0 profiles are in complain mode.\n');
+def('openssl', (ctx) => { if (!ctx.args.length) ctx.out('OpenSSL> '); else ctx.out('OpenSSL 3.0.2 15 Mar 2022 (Library: OpenSSL 3.0.2 15 Mar 2022)\n'); }, { bin: '/usr/bin/openssl' });
+def('git', (ctx) => { if (ctx.args[0] === '--version') ctx.out('git version 2.34.1\n'); else throw new CmdError('fatal: not a git repository (or any of the parent directories): .git', 128); }, { bin: '/usr/bin/git' });
+def(['python3', 'python'], (ctx) => { if (ctx.args[0] === '--version' || ctx.args[0] === '-V') ctx.out('Python 3.10.12\n'); else if (ctx.args[0] === '-c') ctx.err('python3: (simulated) cannot execute code in this simulator\n'); else ctx.out('Python 3.10.12 (main, Nov  6 2024, 20:22:13) [GCC 11.4.0] on linux\nType "help", "copyright", "credits" or "license" for more information.\n>>> \n'); }, { bin: '/usr/bin/python3' });

@@ -65,7 +65,7 @@ const BASE = [
   ['wget', '1.21.4-1ubuntu4.1', 'retrieves files from the web', { bins: ['/usr/bin/wget'] }],
   ['ca-certificates', '20240203', 'Common CA certificates'],
   ['openssl', '3.0.2-0ubuntu1.15', 'Secure Sockets Layer toolkit - cryptographic utility', { bins: ['/usr/bin/openssl'], avail: '3.0.2-0ubuntu1.18' }],
-  ['libssl3t64', '3.0.2-0ubuntu1.15', 'Secure Sockets Layer toolkit - shared libraries', { avail: '3.0.2-0ubuntu1.18' }],
+  ['libssl3', '3.0.2-0ubuntu1.15', 'Secure Sockets Layer toolkit - shared libraries', { avail: '3.0.2-0ubuntu1.18' }],
   ['python3', '3.10.6-1~22.04.1', 'interactive high-level object-oriented language (default python3 version)', { bins: ['/usr/bin/python3'] }],
   ['git', '1:2.43.0-1ubuntu7.1', 'fast, scalable, distributed revision control system', { bins: ['/usr/bin/git'] }],
   ['bsdutils', '1:2.39.3-9ubuntu6.1', 'basic utilities from 4.4BSD-Lite', { essential: true }],
@@ -127,6 +127,7 @@ const BASE = [
   ['onboard', '1.4.1-6', 'Simple On-screen Keyboard', { gui: { title: 'Onboard', summary: 'On-screen keyboard', cat: 'Accessories' } }],
   ['system-config-printer', '1.5.18-1ubuntu1', 'graphical interface to configure the printing system', { gui: { title: 'Printers', summary: 'Configure printers', cat: 'System Tools' } }],
 ];
+BASE.push(['lsof', '4.93.2+dfsg-1.1build2', 'utility to list open files', { bins: ['/usr/bin/lsof'] }]);
 for (const [name, v, d, o] of BASE) pkg(name, v, d, { ...o, installed: true });
 
 // filler: real packages that make `dpkg -l` look like a real machine (no behaviour attached)
