@@ -1,148 +1,124 @@
-// CyberPatriot-style scoring engine. Each vulnerability is a pure check over the System; the engine
-// re-evaluates after changes, keeps the set of "found" items, and emits gain/loss/penalty events.
-import { fmtDate } from './util.js';
+// Scoring engine. A vulnerability is "found" while its check passes; if the fix is undone the points
+// disappear again (just like the real scoring service). Penalties are checks that pass while something
+// bad is true. The engine only reads system state, so terminal and GUI changes score identically.
 
 export class ScoringEngine {
-  /**
-   * @param sys System
-   * @param scenario {id,title,os,vulns[],penalties[],timeLimitMin}
-   * @param opts {delayMs: seconds-to-ms delay before a fix is credited (realistic mode), now}
-   */
-  constructor(sys, scenario, { delayMs = 0, now = () => sys.now() } = {}) {
+  constructor(sys, scenario, saved = null) {
     this.sys = sys;
     this.scenario = scenario;
-    this.delayMs = delayMs;
-    this.now = now;
-    this.found = new Map();      // id -> {at}
-    this.penalized = new Map();  // id -> {at}
-    this.pending = new Map();    // id -> firstSeen (waiting out the scoring delay)
-    this.startedAt = now();
-    this.listeners = new Map();
-    this._timer = null;
-    this._interval = null;
-    this._evaluating = false;
-    this.history = [];           // last N events, newest last
+    this.state = saved || { found: {}, penalties: {}, elapsedMs: 0, startedAt: sys.now() };
+    this.handlers = new Map();
+    this.timer = null;
+    this.tickTimer = null;
+    this.debounce = null;
+    this.mode = 'instant'; // 'instant' (~1.5s after a change) | 'realistic' (every 60s)
+    this.lastTick = sys.now();
+    this.unsub = null;
   }
 
-  // ------------------------------------------------------------ events
   on(evt, fn) {
-    if (!this.listeners.has(evt)) this.listeners.set(evt, new Set());
-    this.listeners.get(evt).add(fn);
-    return () => this.listeners.get(evt).delete(fn);
+    if (!this.handlers.has(evt)) this.handlers.set(evt, new Set());
+    this.handlers.get(evt).add(fn);
+    return () => this.handlers.get(evt).delete(fn);
   }
-  emit(evt, data) {
-    const ev = { type: evt, ...data, at: this.now() };
-    if (evt !== 'update') { this.history.push(ev); if (this.history.length > 200) this.history.shift(); }
-    for (const fn of this.listeners.get(evt) || []) { try { fn(ev); } catch (e) { console.error(e); } }
-  }
+  emit(evt, data) { for (const fn of this.handlers.get(evt) || []) { try { fn(data); } catch (e) { console.error(e); } } }
 
-  // ------------------------------------------------------------ evaluation
   _run(item) {
-    try { return !!item.check(this.sys); } catch { return false; }
+    try { return !!item.check(this.sys); } catch (e) { return false; }
   }
 
-  /** Re-check everything. Returns the events produced by this pass. */
+  /** Re-check everything now. Returns what changed. */
   evaluate() {
-    if (this._evaluating) return [];
-    this._evaluating = true;
-    const events = [];
-    const t = this.now();
-    try {
-      for (const v of this.scenario.vulns) {
-        const ok = this._run(v);
-        if (ok) {
-          if (this.found.has(v.id)) continue;
-          if (!this.pending.has(v.id)) this.pending.set(v.id, t);
-          if (t - this.pending.get(v.id) >= this.delayMs) {
-            this.pending.delete(v.id);
-            this.found.set(v.id, { at: t });
-            events.push({ type: 'gain', id: v.id, points: v.points, title: v.title });
-          }
-        } else {
-          this.pending.delete(v.id);
-          if (this.found.has(v.id)) {
-            this.found.delete(v.id);
-            events.push({ type: 'loss', id: v.id, points: -v.points, title: v.title });
-          }
-        }
-      }
-      for (const p of this.scenario.penalties) {
-        const bad = this._run(p);
-        if (bad && !this.penalized.has(p.id)) {
-          this.penalized.set(p.id, { at: t });
-          events.push({ type: 'penalty', id: p.id, points: -p.points, title: p.title });
-        } else if (!bad && this.penalized.has(p.id)) {
-          this.penalized.delete(p.id);
-          events.push({ type: 'penalty-cleared', id: p.id, points: p.points, title: p.title });
-        }
-      }
-    } finally {
-      this._evaluating = false;
+    const now = this.sys.now();
+    const delta = { gained: [], lost: [], penalized: [], cleared: [] };
+    for (const v of this.scenario.vulns) {
+      const ok = this._run(v);
+      const had = this.state.found[v.id];
+      if (ok && !had) { this.state.found[v.id] = now; delta.gained.push(v); }
+      else if (!ok && had) { delete this.state.found[v.id]; delta.lost.push(v); }
     }
-    for (const e of events) this.emit(e.type, e);
-    if (events.length) this.emit('update', { events });
-    return events;
+    for (const p of this.scenario.penalties) {
+      const bad = this._run(p);
+      const had = this.state.penalties[p.id];
+      if (bad && !had) { this.state.penalties[p.id] = now; delta.penalized.push(p); }
+      else if (!bad && had) { delete this.state.penalties[p.id]; delta.cleared.push(p); }
+    }
+    this.lastEval = now;
+    if (delta.gained.length || delta.lost.length || delta.penalized.length || delta.cleared.length) {
+      this.emit('score', { ...delta, score: this.score() });
+    }
+    this.emit('evaluated', delta);
+    return delta;
   }
 
-  /** Nothing is pending credit (used by tests with delay>0 to fast-forward). */
-  get waiting() { return this.pending.size; }
-
-  // ------------------------------------------------------------ scores
-  get score() {
+  score() {
     let s = 0;
-    for (const v of this.scenario.vulns) if (this.found.has(v.id)) s += v.points;
-    for (const p of this.scenario.penalties) if (this.penalized.has(p.id)) s -= p.points;
+    for (const v of this.scenario.vulns) if (this.state.found[v.id]) s += v.points;
+    for (const p of this.scenario.penalties) if (this.state.penalties[p.id]) s -= p.points;
     return s;
   }
-  get maxScore() { return this.scenario.vulns.reduce((a, v) => a + v.points, 0); }
-  get foundCount() { return this.found.size; }
-  get totalCount() { return this.scenario.vulns.length; }
+  maxScore() { return this.scenario.vulns.reduce((a, v) => a + v.points, 0); }
+
+  elapsedMs() { return this.state.elapsedMs + (this.timer ? Math.max(0, this.sys.now() - this.lastTick) : 0); }
 
   report() {
-    const items = this.scenario.vulns.filter((v) => this.found.has(v.id)).map((v) => ({ id: v.id, category: v.category, title: v.title, points: v.points }));
-    const pens = this.scenario.penalties.filter((p) => this.penalized.has(p.id)).map((p) => ({ id: p.id, title: p.title, points: -p.points }));
-    const elapsed = this.now() - this.startedAt;
-    return { title: this.scenario.title, score: this.score, maxScore: this.maxScore, found: items.length, total: this.totalCount, items, penalties: pens, elapsedMs: elapsed, timeLimitMin: this.scenario.timeLimitMin, generated: fmtDate(this.now()) };
+    const found = this.scenario.vulns.filter((v) => this.state.found[v.id]).sort((a, b) => this.state.found[a.id] - this.state.found[b.id]);
+    const pens = this.scenario.penalties.filter((p) => this.state.penalties[p.id]);
+    const byCat = {};
+    for (const v of this.scenario.vulns) { const c = (byCat[v.category] ||= { total: 0, found: 0, points: 0, max: 0 }); c.total++; c.max += v.points; if (this.state.found[v.id]) { c.found++; c.points += v.points; } }
+    return {
+      title: this.scenario.title,
+      image: this.scenario.imageName,
+      teamId: this.scenario.teamId,
+      generatedAt: this.sys.now(),
+      elapsedMs: this.elapsedMs(),
+      score: this.score(),
+      maxScore: this.maxScore(),
+      foundCount: found.length,
+      totalCount: this.scenario.vulns.length,
+      found: found.map((v) => ({ id: v.id, title: v.title, points: v.points, category: v.category })),
+      penalties: pens.map((p) => ({ id: p.id, title: p.title, points: p.points })),
+      penaltyPoints: pens.reduce((a, p) => a + p.points, 0),
+      gainPoints: found.reduce((a, v) => a + v.points, 0),
+      categories: byCat,
+    };
   }
 
-  // ------------------------------------------------------------ report file (like /opt/CyberPatriot/ScoringReport.html)
-  reportHtml() {
-    const r = this.report();
-    const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-    const hh = Math.floor(r.elapsedMs / 3600000), mm = Math.floor((r.elapsedMs % 3600000) / 60000);
-    let h = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Scoring Report</title></head><body style="font-family:sans-serif">`;
-    h += `<h2 style="text-align:center">${esc(r.title)}</h2><p style="text-align:center"><b>Report Generated At:</b> ${esc(r.generated)}</p>`;
-    h += `<p style="text-align:center">Approximate Elapsed Time: ${hh} hr(s) ${mm} min(s)</p>`;
-    h += `<h3 style="text-align:center">${r.found} out of ${r.total} scored security issues fixed, for a total of ${r.score} points out of ${r.maxScore}</h3>`;
-    if (r.penalties.length) { h += `<h3 style="color:#b00">${r.penalties.length} penalties assessed, for a loss of ${-r.penalties.reduce((a, p) => a + p.points, 0)} points:</h3>`; for (const p of r.penalties) h += `<p style="color:#b00">${esc(p.title)} - ${-p.points} pts</p>`; }
-    h += '<h3 style="color:#06a">Security issues fixed:</h3>';
-    for (const i of r.items) h += `<p>${esc(i.title)} - ${i.points} pts</p>`;
-    return h + '</body></html>';
-  }
+  // ---------------------------------------------------------------- scheduling (browser)
+  setMode(mode) { this.mode = mode; this._reschedule(); }
 
-  // ------------------------------------------------------------ live wiring
-  /** Start reacting to system changes (debounced) and ticking cron + periodic re-checks. */
-  attach({ debounceMs = 250, tickMs = 5000, onTick } = {}) {
-    this.detach();
-    this._off = this.sys.on('change', () => {
-      clearTimeout(this._timer);
-      this._timer = setTimeout(() => this.evaluate(), debounceMs);
-    });
-    this._interval = setInterval(() => { onTick?.(); this.evaluate(); }, tickMs);
+  start() {
+    if (this.timer) return;
+    this.lastTick = this.sys.now();
+    this.unsub = this.sys.on('change', () => { if (this.mode === 'instant') this._debounced(); });
+    this.timer = setInterval(() => this._tick(), 1000);
+    this._reschedule();
     this.evaluate();
   }
-  detach() {
-    this._off?.();
-    clearTimeout(this._timer);
-    clearInterval(this._interval);
+  stop() {
+    clearInterval(this.timer); clearInterval(this.tickTimer); clearTimeout(this.debounce);
+    this.timer = this.tickTimer = this.debounce = null;
+    this.unsub?.();
+  }
+  _debounced() {
+    clearTimeout(this.debounce);
+    this.debounce = setTimeout(() => this.evaluate(), 1200);
+  }
+  _reschedule() {
+    clearInterval(this.tickTimer);
+    this.tickTimer = setInterval(() => this.evaluate(), this.mode === 'instant' ? 5000 : 60000);
+  }
+  _tick() {
+    const now = this.sys.now();
+    this.state.elapsedMs += now - this.lastTick;
+    this.lastTick = now;
+    this.emit('tick', this.state.elapsedMs);
   }
 
-  // ------------------------------------------------------------ persistence
-  serialize() {
-    return { v: 1, found: [...this.found], penalized: [...this.penalized], pending: [...this.pending], startedAt: this.startedAt, delayMs: this.delayMs };
-  }
-  restore(s) {
-    this.found = new Map(s.found); this.penalized = new Map(s.penalized); this.pending = new Map(s.pending || []);
-    this.startedAt = s.startedAt; this.delayMs = s.delayMs ?? this.delayMs;
-  }
+  serialize() { return JSON.parse(JSON.stringify(this.state)); }
+}
+
+export function fmtElapsed(ms) {
+  const m = Math.floor(ms / 60000);
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 }

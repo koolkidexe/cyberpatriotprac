@@ -1,284 +1,279 @@
-// A bash-subset parser: quoting, $VAR / ${VAR} / $(cmd) / $((expr)) / `cmd`, ~ and globs, pipes, redirections,
-// && || ; &, and if / for / while / until / { } / ( ) compounds.
-// parse(text) returns an AST; throws {incomplete:true} when more input is needed (unclosed quote, trailing |, open `if`...).
+// Bash-like lexer and parser. Produces a small AST that Shell.exec* walks.
+// Supported: quotes, escapes, $VAR/${VAR}/$(cmd)/`cmd`/$((arith)), pipes, && || ; &, redirections,
+// for / while / until / if compound commands, ( ) subshells and { } groups.
 
-export class ParseError extends Error {
-  constructor(msg, incomplete = false) { super(msg); this.incomplete = incomplete; }
+export class ParseError extends Error {}
+
+const OPS = ['2>&1', '&>>', '2>>', '&>', '>>', '||', '&&', '2>', '>&', '<', '>', '|', ';', '&', '(', ')'];
+const RESERVED = new Set(['for', 'in', 'do', 'done', 'if', 'then', 'elif', 'else', 'fi', 'while', 'until', '{', '}', '!']);
+
+/** Find the index of the ")" matching an already-opened "(" at `i` (text[i] is the first char after "("). */
+function matchParen(s, i) {
+  let depth = 1;
+  let q = null;
+  for (; i < s.length; i++) {
+    const c = s[i];
+    if (q) { if (c === q) q = null; else if (c === '\\' && q === '"') i++; continue; }
+    if (c === "'" || c === '"') q = c;
+    else if (c === '\\') i++;
+    else if (c === '(') depth++;
+    else if (c === ')') { if (--depth === 0) return i; }
+  }
+  throw new ParseError('syntax error: unexpected end of file');
 }
 
-const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'fi', 'for', 'in', 'do', 'done', 'while', 'until', '{', '}', '!']);
-const OPS = ['&>>', '<<<', '2>>', '>>', '&&', '||', '2>&1', '>&2', '&>', '2>', ';;', '|', '&', ';', '(', ')', '>', '<'];
-
-function isSpace(c) { return c === ' ' || c === '\t'; }
-
-/** Tokenise into words and operators. A word is a list of parts: {k:'lit'|'var'|'cmd'|'arith'|'tilde', v, q}. */
 export function tokenize(src) {
   const toks = [];
   let i = 0;
   const n = src.length;
-  const readParen = (start) => {
-    // src[start] is just after "$(" — find the matching ")"
-    let depth = 1; let j = start; let q = null;
-    while (j < n && depth > 0) {
-      const c = src[j];
-      if (q) { if (c === q) q = null; else if (c === '\\' && q === '"') j++; }
-      else if (c === "'" || c === '"') q = c;
-      else if (c === '(') depth++;
-      else if (c === ')') depth--;
-      j++;
-    }
-    if (depth) throw new ParseError('unexpected EOF while looking for matching `)\'', true);
-    return [src.slice(start, j - 1), j];
-  };
-  const readVar = (parts, quoted) => {
-    // src[i] === '$'
-    const c = src[i + 1];
-    if (c === '(' && src[i + 2] === '(') {
-      const [body, j] = readParen(i + 2);
-      parts.push({ k: 'arith', v: body.slice(1, body.endsWith(')') ? -1 : undefined), q: quoted }); i = j; return;
-    }
-    if (c === '(') { const [body, j] = readParen(i + 2); parts.push({ k: 'cmd', v: body, q: quoted }); i = j; return; }
-    if (c === '{') {
-      const j = src.indexOf('}', i);
-      if (j < 0) throw new ParseError('unexpected EOF while looking for `}\'', true);
-      parts.push({ k: 'var', v: src.slice(i + 2, j), q: quoted, braces: true }); i = j + 1; return;
-    }
-    const m = /^(\?|\$|#|@|\*|!|[0-9]|[A-Za-z_][A-Za-z0-9_]*)/.exec(src.slice(i + 1));
-    if (m) { parts.push({ k: 'var', v: m[1], q: quoted }); i += 1 + m[1].length; return; }
-    parts.push({ k: 'lit', v: '$', q: quoted }); i++;
-  };
-
   while (i < n) {
     const c = src[i];
-    if (isSpace(c)) { i++; continue; }
-    if (c === '\\' && src[i + 1] === '\n') { i += 2; continue; }
+    if (c === ' ' || c === '\t') { i++; continue; }
+    if (c === '\n') { toks.push({ t: 'op', v: ';', nl: true }); i++; continue; }
     if (c === '#') { while (i < n && src[i] !== '\n') i++; continue; }
-    if (c === '\n') { toks.push({ t: 'op', v: '\n' }); i++; continue; }
-    // operators (fd-number redirects only when the digit starts a word)
-    const op = OPS.find((o) => src.startsWith(o, i));
-    if (op) { toks.push({ t: 'op', v: op }); i += op.length; continue; }
-    // a word
-    const parts = [];
-    let hasQuote = false;
-    const lit = (ch, q) => { const last = parts[parts.length - 1]; if (last && last.k === 'lit' && last.q === q) last.v += ch; else parts.push({ k: 'lit', v: ch, q }); };
-    if (c === '~') {
-      const m = /^~([A-Za-z0-9_-]*)(?=\/|$|\s|[:;|&<>)])/.exec(src.slice(i));
-      if (m) { parts.push({ k: 'tilde', v: m[1] }); i += m[0].length; }
+    // operators ("2>" only counts when it starts a word)
+    let matched = null;
+    for (const op of OPS) {
+      if (src.startsWith(op, i)) {
+        if (op[0] === '2' && i > 0 && !/[\s;&|(]/.test(src[i - 1])) continue;
+        matched = op; break;
+      }
     }
+    if (matched) { toks.push({ t: 'op', v: matched }); i += matched.length; continue; }
+    // a word
+    const segs = [];
+    let lit = '';
+    const flush = () => { if (lit) { segs.push({ k: 'lit', v: lit }); lit = ''; } };
     while (i < n) {
       const ch = src[i];
-      if (isSpace(ch) || ch === '\n') break;
-      if (ch === '|' || ch === '&' || ch === ';' || ch === '<' || ch === '>' || ch === '(' || ch === ')') break;
-      if (ch === '\\') { if (i + 1 >= n) throw new ParseError('trailing backslash', true); if (src[i + 1] === '\n') { i += 2; continue; } lit(src[i + 1], true); hasQuote = true; i += 2; continue; }
+      if (ch === ' ' || ch === '\t' || ch === '\n') break;
+      if (ch === ';' || ch === '|' || ch === '&' || ch === '(' || ch === ')' || ch === '<' || ch === '>') break;
+      if (ch === '\\') {
+        if (src[i + 1] === '\n') { i += 2; continue; }
+        flush(); segs.push({ k: 'sq', v: src[i + 1] ?? '\\' }); i += 2; continue;
+      }
       if (ch === "'") {
+        flush();
         const j = src.indexOf("'", i + 1);
-        if (j < 0) throw new ParseError("unexpected EOF while looking for matching `''", true);
-        parts.push({ k: 'lit', v: src.slice(i + 1, j), q: true }); hasQuote = true; i = j + 1; continue;
+        if (j < 0) throw new ParseError("unexpected EOF while looking for matching `''");
+        segs.push({ k: 'sq', v: src.slice(i + 1, j), word: true }); i = j + 1; continue;
       }
       if (ch === '"') {
-        i++; hasQuote = true;
+        flush();
+        i++;
+        let buf = '';
+        const fl = () => { if (buf) { segs.push({ k: 'dq', v: buf }); buf = ''; } };
         let closed = false;
-        const start = parts.length;
         while (i < n) {
           const d = src[i];
           if (d === '"') { closed = true; i++; break; }
-          if (d === '\\' && i + 1 < n && '"\\$`\n'.includes(src[i + 1])) { if (src[i + 1] !== '\n') lit(src[i + 1], true); i += 2; continue; }
-          if (d === '$') { readVar(parts, true); continue; }
-          if (d === '`') { const j = src.indexOf('`', i + 1); if (j < 0) throw new ParseError('unexpected EOF while looking for matching ``\'', true); parts.push({ k: 'cmd', v: src.slice(i + 1, j), q: true }); i = j + 1; continue; }
-          lit(d, true); i++;
+          if (d === '\\' && i + 1 < n && '"\\$`\n'.includes(src[i + 1])) { if (src[i + 1] !== '\n') { fl(); segs.push({ k: 'sq', v: src[i + 1] }); } i += 2; continue; }
+          if (d === '$' && src[i + 1] === '(') {
+            fl();
+            if (src[i + 2] === '(') { const j = matchParen(src, i + 2); segs.push({ k: 'arith', v: src.slice(i + 3, j - 1), quoted: true }); i = j + 1; continue; }
+            const j = matchParen(src, i + 2); segs.push({ k: 'cmd', v: src.slice(i + 2, j), quoted: true }); i = j + 1; continue;
+          }
+          if (d === '`') { fl(); const j = src.indexOf('`', i + 1); if (j < 0) throw new ParseError('unexpected EOF while looking for matching ``\''); segs.push({ k: 'cmd', v: src.slice(i + 1, j), quoted: true }); i = j + 1; continue; }
+          buf += d; i++;
         }
-        if (!closed) throw new ParseError("unexpected EOF while looking for matching `\"'", true);
-        if (parts.length === start) parts.push({ k: 'lit', v: '', q: true });
+        if (!closed) throw new ParseError('unexpected EOF while looking for matching `"\'');
+        fl();
+        segs.push({ k: 'dqmark' }); // ensures "" counts as a present (empty) word
         continue;
       }
-      if (ch === '$' && src[i + 1] === "'") {
-        const j = src.indexOf("'", i + 2);
-        if (j < 0) throw new ParseError("unexpected EOF while looking for matching `''", true);
-        const raw = src.slice(i + 2, j).replace(/\\(n|t|r|e|\\|')/g, (_, x) => ({ n: '\n', t: '\t', r: '\r', e: '\u001b', '\\': '\\', "'": "'" }[x]));
-        parts.push({ k: 'lit', v: raw, q: true }); hasQuote = true; i = j + 1; continue;
+      if (ch === '$' && src[i + 1] === '(') {
+        flush();
+        if (src[i + 2] === '(') { const j = matchParen(src, i + 2); segs.push({ k: 'arith', v: src.slice(i + 3, j - 1) }); i = j + 1; continue; }
+        const j = matchParen(src, i + 2); segs.push({ k: 'cmd', v: src.slice(i + 2, j) }); i = j + 1; continue;
       }
-      if (ch === '$') { readVar(parts, false); continue; }
-      if (ch === '`') { const j = src.indexOf('`', i + 1); if (j < 0) throw new ParseError('unexpected EOF while looking for matching ``\'', true); parts.push({ k: 'cmd', v: src.slice(i + 1, j), q: false }); i = j + 1; continue; }
-      lit(ch, false); i++;
+      if (ch === '`') { flush(); const j = src.indexOf('`', i + 1); if (j < 0) throw new ParseError('unexpected EOF while looking for matching ``\''); segs.push({ k: 'cmd', v: src.slice(i + 1, j) }); i = j + 1; continue; }
+      lit += ch; i++;
     }
-    const plain = parts.length === 1 && parts[0].k === 'lit' && !parts[0].q ? parts[0].v : null;
-    // "2>file" style: a bare digit directly before a redirect operator
-    toks.push({ t: 'word', parts, plain, hasQuote });
+    flush();
+    toks.push({ t: 'word', segs });
   }
   return toks;
 }
 
-// Convert "2" followed by ">" into a single redirect token (the OPS table handles 2> / 2>> / 2>&1 directly).
-
-class Parser {
-  constructor(toks) { this.toks = toks; this.p = 0; }
-  peek() { return this.toks[this.p]; }
-  next() { return this.toks[this.p++]; }
-  isOp(v) { const t = this.peek(); return t && t.t === 'op' && t.v === v; }
-  isKw(v) { const t = this.peek(); return t && t.t === 'word' && t.plain === v && !t.hasQuote; }
-  skipNewlines() { while (this.isOp('\n')) this.p++; }
-  skipSeps() { while (this.isOp('\n') || this.isOp(';')) this.p++; }
-  eof() { return this.p >= this.toks.length; }
-
-  /** Parse commands until one of `stop` keywords (or ")" for subshells) is next. */
-  parseList(stop = []) {
-    const items = [];
-    this.skipSeps();
-    while (!this.eof()) {
-      if (stop.some((k) => (k === ')' ? this.isOp(')') : this.isKw(k)))) break;
-      const node = this.parseAndOr();
-      let bg = false;
-      if (this.isOp('&')) { this.next(); bg = true; }
-      else if (this.isOp(';') || this.isOp('\n')) this.next();
-      else if (!this.eof() && !stop.some((k) => (k === ')' ? this.isOp(')') : this.isKw(k)))) throw new ParseError(`syntax error near unexpected token \`${this.tokText(this.peek())}'`);
-      items.push({ node, bg });
-      this.skipSeps();
-    }
-    return { type: 'list', items };
-  }
-  tokText(t) { return t ? (t.t === 'op' ? (t.v === '\n' ? 'newline' : t.v) : t.plain ?? t.parts.map((x) => x.v).join('')) : 'newline'; }
-
-  parseAndOr() {
-    const first = this.parsePipeline();
-    const rest = [];
-    while (this.isOp('&&') || this.isOp('||')) {
-      const op = this.next().v;
-      this.skipNewlines();
-      if (this.eof()) throw new ParseError('unexpected EOF after ' + op, true);
-      rest.push({ op, pipe: this.parsePipeline() });
-    }
-    return { type: 'andor', first, rest };
-  }
-
-  parsePipeline() {
-    let neg = false;
-    if (this.isKw('!')) { this.next(); neg = true; }
-    const cmds = [this.parseCommand()];
-    while (this.isOp('|')) {
-      this.next(); this.skipNewlines();
-      if (this.eof()) throw new ParseError('unexpected EOF after |', true);
-      cmds.push(this.parseCommand());
-    }
-    return { type: 'pipeline', neg, cmds };
-  }
-
-  expectKw(k) {
-    if (this.eof()) throw new ParseError(`unexpected EOF while looking for \`${k}'`, true);
-    if (!this.isKw(k)) throw new ParseError(`syntax error near unexpected token \`${this.tokText(this.peek())}'`);
-    this.next();
-  }
-
-  parseCommand() {
-    const t = this.peek();
-    if (!t) throw new ParseError('unexpected EOF', true);
-    if (t.t === 'op' && t.v === '(') {
-      this.next();
-      const body = this.parseList([')']);
-      if (this.eof()) throw new ParseError('unexpected EOF while looking for `)\'', true);
-      this.next();
-      return this.withRedirs({ type: 'group', body });
-    }
-    if (t.t === 'word' && !t.hasQuote) {
-      if (t.plain === '{') { this.next(); const body = this.parseList(['}']); this.expectKw('}'); return this.withRedirs({ type: 'group', body }); }
-      if (t.plain === 'if') return this.withRedirs(this.parseIf());
-      if (t.plain === 'for') return this.withRedirs(this.parseFor());
-      if (t.plain === 'while' || t.plain === 'until') return this.withRedirs(this.parseWhile());
-    }
-    return this.parseSimple();
-  }
-
-  parseIf() {
-    this.next();
-    const clauses = [];
-    let els = null;
-    let cond = this.parseList(['then']); this.expectKw('then');
-    let body = this.parseList(['elif', 'else', 'fi']);
-    clauses.push({ cond, body });
-    for (;;) {
-      if (this.isKw('elif')) { this.next(); cond = this.parseList(['then']); this.expectKw('then'); body = this.parseList(['elif', 'else', 'fi']); clauses.push({ cond, body }); continue; }
-      if (this.isKw('else')) { this.next(); els = this.parseList(['fi']); }
-      break;
-    }
-    this.expectKw('fi');
-    return { type: 'if', clauses, else: els };
-  }
-
-  parseFor() {
-    this.next();
-    const v = this.next();
-    if (!v || v.t !== 'word') throw new ParseError('syntax error: for needs a variable name');
-    let words = null;
-    this.skipNewlines();
-    if (this.isKw('in')) {
-      this.next(); words = [];
-      while (!this.eof() && this.peek().t === 'word' && !this.isKw('do')) words.push(this.next());
-      if (this.isOp(';') || this.isOp('\n')) this.next();
-    } else if (this.isOp(';')) this.next();
-    this.skipNewlines();
-    this.expectKw('do');
-    const body = this.parseList(['done']);
-    this.expectKw('done');
-    return { type: 'for', var: v.plain, words, body };
-  }
-
-  parseWhile() {
-    const until = this.next().plain === 'until';
-    const cond = this.parseList(['do']); this.expectKw('do');
-    const body = this.parseList(['done']); this.expectKw('done');
-    return { type: 'while', until, cond, body };
-  }
-
-  withRedirs(node) { node.redirs = []; this.readRedirs(node.redirs); return node; }
-
-  readRedirs(into) {
-    for (;;) {
-      const t = this.peek();
-      if (!t || t.t !== 'op') return;
-      if (['>', '>>', '<', '2>', '2>>', '&>', '&>>', '<<<'].includes(t.v)) {
-        this.next();
-        const target = this.next();
-        if (!target || target.t !== 'word') throw new ParseError("syntax error near unexpected token `newline'");
-        into.push({ op: t.v, target });
-      } else if (t.v === '2>&1' || t.v === '>&2') { this.next(); into.push({ op: t.v }); }
-      else return;
-    }
-  }
-
-  parseSimple() {
-    const node = { type: 'simple', assigns: [], words: [], redirs: [] };
-    for (;;) {
-      const t = this.peek();
-      if (!t) break;
-      if (t.t === 'op') {
-        if (['>', '>>', '<', '2>', '2>>', '&>', '&>>', '<<<', '2>&1', '>&2'].includes(t.v)) { this.readRedirs(node.redirs); continue; }
-        break;
-      }
-      if (!node.words.length && !t.hasQuote) {
-        const m = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(t.parts[0]?.k === 'lit' && !t.parts[0].q ? t.parts[0].v : '');
-        if (m) {
-          this.next();
-          const first = { ...t.parts[0], v: t.parts[0].v.slice(m[0].length) };
-          const parts = [first, ...t.parts.slice(1)].filter((x) => !(x.k === 'lit' && x.v === '' && !x.q));
-          node.assigns.push({ name: m[1], word: { t: 'word', parts, plain: null } });
-          continue;
-        }
-      }
-      if (!node.words.length && !t.hasQuote && KEYWORDS.has(t.plain) && t.plain !== '!') {
-        if (['then', 'else', 'elif', 'fi', 'do', 'done', '}', 'in'].includes(t.plain)) throw new ParseError(`syntax error near unexpected token \`${t.plain}'`);
-      }
-      node.words.push(this.next());
-    }
-    if (!node.words.length && !node.assigns.length && !node.redirs.length) {
-      throw new ParseError(`syntax error near unexpected token \`${this.tokText(this.peek())}'`);
-    }
-    return node;
-  }
-}
+const plain = (tok) => (tok.t === 'word' && tok.segs.length === 1 && tok.segs[0].k === 'lit' ? tok.segs[0].v : null);
+const isAssign = (tok) => {
+  if (tok.t !== 'word' || !tok.segs.length || tok.segs[0].k !== 'lit') return null;
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(tok.segs[0].v);
+  if (!m) return null;
+  return { name: m[1], rest: m[2] };
+};
 
 export function parse(src) {
   const toks = tokenize(src);
-  const p = new Parser(toks);
-  const ast = p.parseList();
-  if (!p.eof()) throw new ParseError(`syntax error near unexpected token \`${p.tokText(p.peek())}'`);
+  let p = 0;
+  const peek = () => toks[p];
+  const isOp = (t, v) => t && t.t === 'op' && t.v === v;
+  const isKw = (t, v) => t && plain(t) === v;
+  const skipSemis = () => { while (peek() && isOp(peek(), ';')) p++; };
+
+  function parseList(stops = []) {
+    const items = [];
+    skipSemis();
+    while (peek()) {
+      const t = peek();
+      if (isOp(t, ')') || stops.some((s) => isKw(t, s))) break;
+      const node = parseAndOr(stops);
+      let bg = false;
+      if (peek() && isOp(peek(), '&')) { bg = true; p++; }
+      else if (peek() && isOp(peek(), ';')) p++;
+      items.push({ node, bg });
+      skipSemis();
+    }
+    return { type: 'list', items };
+  }
+
+  function parseAndOr(stops) {
+    const first = parsePipeline(stops);
+    const rest = [];
+    while (peek() && (isOp(peek(), '&&') || isOp(peek(), '||'))) {
+      const op = peek().v; p++;
+      while (peek() && isOp(peek(), ';') && peek().nl) p++;
+      rest.push([op, parsePipeline(stops)]);
+    }
+    return rest.length ? { type: 'andor', first, rest } : first;
+  }
+
+  function parsePipeline(stops) {
+    let neg = false;
+    if (peek() && isKw(peek(), '!')) { neg = true; p++; }
+    const cmds = [parseCommand(stops)];
+    while (peek() && isOp(peek(), '|')) {
+      p++;
+      while (peek() && isOp(peek(), ';') && peek().nl) p++;
+      cmds.push(parseCommand(stops));
+    }
+    return cmds.length === 1 && !neg ? cmds[0] : { type: 'pipe', cmds, neg };
+  }
+
+  function expectKw(k) {
+    skipSemis();
+    if (!isKw(peek(), k)) throw new ParseError(`syntax error: expected '${k}'`);
+    p++;
+  }
+
+  function parseRedirs(node) {
+    const redirs = [];
+    while (peek() && peek().t === 'op' && ['>', '>>', '<', '2>', '2>>', '&>', '&>>', '2>&1', '>&'].includes(peek().v)) {
+      const op = peek().v; p++;
+      if (op === '2>&1') { redirs.push({ op }); continue; }
+      const target = peek();
+      if (!target || target.t !== 'word') throw new ParseError("syntax error near unexpected token `newline'");
+      p++;
+      redirs.push({ op, target });
+    }
+    if (redirs.length) return { type: 'redir', node, redirs };
+    return node;
+  }
+
+  function parseCommand(stops) {
+    const t = peek();
+    if (!t) throw new ParseError("syntax error: unexpected end of file");
+    if (isKw(t, 'for')) {
+      p++;
+      const vt = peek(); p++;
+      const name = vt && plain(vt);
+      if (!name) throw new ParseError("syntax error near unexpected token `for'");
+      let words = null;
+      skipSemis();
+      if (isKw(peek(), 'in')) {
+        p++; words = [];
+        while (peek() && peek().t === 'word' && !(isOp(peek(), ';'))) words.push(toks[p++]);
+      }
+      skipSemis();
+      expectKw('do');
+      const body = parseList(['done']);
+      expectKw('done');
+      return parseRedirs({ type: 'for', name, words, body });
+    }
+    if (isKw(t, 'while') || isKw(t, 'until')) {
+      const until = isKw(t, 'until'); p++;
+      const cond = parseList(['do']);
+      expectKw('do');
+      const body = parseList(['done']);
+      expectKw('done');
+      return parseRedirs({ type: 'while', until, cond, body });
+    }
+    if (isKw(t, 'if')) {
+      p++;
+      const branches = [];
+      let els = null;
+      let cond = parseList(['then']);
+      expectKw('then');
+      let body = parseList(['elif', 'else', 'fi']);
+      branches.push([cond, body]);
+      for (;;) {
+        skipSemis();
+        if (isKw(peek(), 'elif')) { p++; cond = parseList(['then']); expectKw('then'); body = parseList(['elif', 'else', 'fi']); branches.push([cond, body]); continue; }
+        if (isKw(peek(), 'else')) { p++; els = parseList(['fi']); }
+        break;
+      }
+      expectKw('fi');
+      return parseRedirs({ type: 'if', branches, els });
+    }
+    if (isOp(t, '(')) {
+      p++;
+      const body = parseList();
+      if (!isOp(peek(), ')')) throw new ParseError("syntax error: expected ')'");
+      p++;
+      return parseRedirs({ type: 'subshell', body });
+    }
+    if (isKw(t, '{')) {
+      p++;
+      const body = parseList(['}']);
+      expectKw('}');
+      return parseRedirs({ type: 'group', body });
+    }
+    return parseSimple(stops);
+  }
+
+  function parseSimple(stops) {
+    const assigns = [];
+    const words = [];
+    const redirs = [];
+    while (peek()) {
+      const t = peek();
+      if (t.t === 'op') {
+        if (['>', '>>', '<', '2>', '2>>', '&>', '&>>', '2>&1', '>&'].includes(t.v)) {
+          p++;
+          if (t.v === '2>&1') { redirs.push({ op: t.v }); continue; }
+          const target = peek();
+          if (!target || target.t !== 'word') throw new ParseError("syntax error near unexpected token `newline'");
+          p++;
+          redirs.push({ op: t.v, target });
+          continue;
+        }
+        break;
+      }
+      if (words.length === 0) {
+        const kw = plain(t);
+        if (kw && RESERVED.has(kw) && stops.includes(kw)) break;
+        if (kw && ['then', 'do', 'done', 'fi', 'else', 'elif', 'esac', '}'].includes(kw) && !stops.includes(kw)) throw new ParseError(`syntax error near unexpected token \`${kw}'`);
+        const a = isAssign(t);
+        if (a) {
+          p++;
+          const segs = [{ k: 'lit', v: a.rest }, ...t.segs.slice(1)].filter((s) => s.v !== '' || s.k !== 'lit');
+          assigns.push({ name: a.name, word: { t: 'word', segs } });
+          continue;
+        }
+      } else if (stops.length && plain(t) && stops.includes(plain(t)) && false) break;
+      words.push(t); p++;
+    }
+    if (!words.length && !assigns.length && !redirs.length) {
+      const t = peek();
+      throw new ParseError(`syntax error near unexpected token \`${t ? (t.t === 'op' ? t.v : plain(t) || 'word') : 'newline'}'`);
+    }
+    return { type: 'simple', assigns, words, redirs };
+  }
+
+  const ast = parseList();
+  if (p < toks.length) {
+    const t = toks[p];
+    throw new ParseError(`syntax error near unexpected token \`${t.t === 'op' ? t.v : plain(t) || 'word'}'`);
+  }
   return ast;
 }

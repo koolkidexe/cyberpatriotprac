@@ -1,0 +1,78 @@
+/* ---- terminal */
+.term { flex: 1; background: #1d1f21; color: #d3d7cf; font-family: var(--mono); font-size: 15px; line-height: 1.18; padding: 6px 8px; overflow-y: auto; overflow-x: hidden; outline: none; user-select: text; -webkit-user-select: text; cursor: text; }
+.term .out { white-space: pre-wrap; word-break: break-all; }
+.term .out > .ln { min-height: 1.18em; }
+.term .out > .ln:last-child:empty { display: none; }
+.term .inl { white-space: pre-wrap; word-break: break-all; min-height: 1.18em; position: relative; }
+.term .probe { position: absolute; visibility: hidden; pointer-events: none; white-space: pre; left: 0; top: 0; }
+.term .cur { display: inline-block; min-width: .6em; }
+.term .cur.on { background: #d3d7cf; color: #1d1f21; animation: blink 1.1s steps(1) infinite; }
+.term .cur:not(.on) { outline: 1px solid #d3d7cf; outline-offset: -1px; }
+@keyframes blink { 50% { background: transparent; color: #d3d7cf; } }
+.term ::selection { background: #4a6a8a; color: #fff; }
+/* ---- nano / vi overlay */
+.nano { position: absolute; inset: 0; background: #1d1f21; color: #d3d7cf; font-family: var(--mono); font-size: 15px; line-height: 1.2; display: flex; flex-direction: column; z-index: 20; }
+.nano-title { background: #d3d7cf; color: #1d1f21; display: flex; white-space: pre; padding: 0 0; position: relative; height: 1.3em; flex: none; }
+.nano-title .c { flex: 1; text-align: center; }
+.nano-title .r { min-width: 11ch; text-align: right; }
+.nano-ta { flex: 1; resize: none; border: none; outline: none; background: #1d1f21; color: #d3d7cf; font: inherit; line-height: inherit; padding: 2px 4px; white-space: pre; overflow: auto; tab-size: 8; caret-color: #fff; user-select: text; -webkit-user-select: text; }
+.nano-status { text-align: center; height: 1.3em; flex: none; visibility: hidden; }
+.nano-status:not(:empty) { visibility: visible; }
+.nano-status { background: transparent; }
+.nano-status:not(:empty)::before { content: ""; }
+.nano-help { flex: none; padding-bottom: 2px; }
+.nano-help .row { display: flex; }
+.nano-help .it { flex: 1; white-space: nowrap; cursor: pointer; overflow: hidden; }
+.nano-help .it b { background: #d3d7cf; color: #1d1f21; font-weight: 400; padding: 0 1px; margin-right: 1px; }
+.nano-help .it:hover { color: #fff; }
+.nano-prompt { background: #d3d7cf; color: #1d1f21; display: flex; padding: 0 2px; flex: none; }
+.nano-in { flex: 1; background: transparent; border: none; outline: none; font: inherit; color: #1d1f21; padding-left: 4px; }
+.nano-yn { outline: none; background: #d3d7cf; color: #1d1f21; padding: 0 2px; }
+.nano-yn .opts { background: #1d1f21; color: #d3d7cf; display: flex; gap: 22px; padding-left: 2px; }
+.nano-yn .opts b { background: #d3d7cf; color: #1d1f21; font-weight: 400; }
+.nano-yn .opts span { cursor: pointer; }
+.nano-helppage { position: absolute; inset: 0; background: #1d1f21; padding: 10px 16px; z-index: 30; outline: none; overflow: auto; }
+.nano-helppage pre { margin: 0; white-space: pre-wrap; font: inherit; }
+.vi-bar { background: #1d1f21; color: #d3d7cf; height: 1.3em; display: flex; justify-content: space-between; flex: none; padding: 0 4px; white-space: pre; }
+.vi-bar .r { margin-left: auto; }
+
+/* ---- xed */
+.xed-ta { flex: 1; min-height: 0; resize: none; border: none; outline: none; padding: 6px 8px; font-family: var(--mono); font-size: 14px; line-height: 1.3; background: #fff; color: #2e3436; white-space: pre; overflow: auto; user-select: text; -webkit-user-select: text; tab-size: 8; }
+
+/* ---- files */
+.fm-side { width: 150px; flex: none; background: #f4f4f4; border-right: 1px solid #d0d0d0; padding: 6px 0; overflow: auto; }
+.fm-side .pl { display: flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: default; }
+.fm-side .pl:hover { background: #e3eadb; }
+.fm-list { flex: 1; background: #fff; outline: none; }
+.fm-table td { vertical-align: middle; }
+.fm-table td svg, .fm-table td .ico { vertical-align: middle; }
+
+/* ---- generic app layout */
+.app-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pad { padding: 12px 14px; }
+.hbox { display: flex; align-items: center; gap: 8px; }
+.sp { flex: 1; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; padding: 14px; overflow: auto; }
+.tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; border-radius: 6px; text-align: center; cursor: default; }
+.tile:hover { background: #dfe8d6; }
+.sw { display: inline-block; width: 40px; height: 20px; border-radius: 10px; background: #b9b9b9; position: relative; vertical-align: middle; cursor: default; transition: background .15s; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+.sw.on { background: var(--accent-dark); }
+.sw.on::after { left: 22px; }
+.sw.dis { opacity: .5; pointer-events: none; }
+.lockbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #fff3d1; border-bottom: 1px solid #e0cf98; flex: none; }
+.listbox { background: #fff; border: 1px solid #c4c4c4; overflow: auto; }
+.listbox .li { padding: 6px 10px; display: flex; align-items: center; gap: 8px; cursor: default; }
+.listbox .li.sel { background: var(--accent); color: #fff; }
+.kv { display: grid; grid-template-columns: 130px 1fr; gap: 8px 10px; align-items: center; }
+.kv > .k { text-align: right; color: #666; }
+.badge { padding: 1px 7px; border-radius: 9px; background: #ddd; font-size: 11px; }
+.badge.green { background: #cfe3bf; } .badge.red { background: #f0c4c1; }
+.browser-frame { flex: 1; border: none; background: #fff; min-height: 0; }
+.urlbar { flex: 1; border-radius: 14px !important; padding: 4px 12px !important; }
+.ff-tabs { display: flex; background: #dcdcdf; padding: 5px 6px 0; gap: 3px; flex: none; }
+.ff-tab { display: flex; align-items: center; gap: 6px; padding: 6px 12px; max-width: 220px; min-width: 120px; background: #cfcfd3; border-radius: 6px 6px 0 0; cursor: default; overflow: hidden; white-space: nowrap; }
+.ff-tab.on { background: #f9f9fb; }
+.ff-tab .x { margin-left: auto; opacity: .6; padding: 0 3px; }
+.ff-tab .x:hover { background: #bbb; border-radius: 3px; }
+.ff-nav { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: #f9f9fb; border-bottom: 1px solid #d0d0d4; flex: none; }

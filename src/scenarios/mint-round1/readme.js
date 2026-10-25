@@ -1,44 +1,58 @@
-// The scenario README, shown in the browser window exactly like the CyberPatriot README.
-export const ADMINS = ['student', 'dana'];
-export const AUTHORIZED = ['alex', 'jordan', 'riley', 'morgan', 'casey'];
+// The Scenario README shown on the desktop, written in the style of a competition README.
+export const AUTHORIZED_ADMINS = [
+  { name: 'student', password: 'Student#Mint21', note: 'you' },
+  { name: 'dana', password: 'Sunfl0wer!Day', note: 'Operations Manager' },
+];
+export const AUTHORIZED_USERS = ['alex', 'jordan', 'riley', 'morgan', 'casey'];
 
-const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+export function readmeHtml() {
+  const admins = AUTHORIZED_ADMINS.map((a) => `<li><code>${a.name}</code>${a.note === 'you' ? ' (you)' : ''}<br>password: <code>${a.password}</code></li>`).join('');
+  const users = AUTHORIZED_USERS.map((u) => `<li><code>${u}</code></li>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Linux Mint Practice Image README</title>
+<style>
+body{font:15px/1.5 "Noto Sans","DejaVu Sans",Arial,sans-serif;color:#222;max-width:820px;margin:0 auto;padding:22px 30px 60px;background:#fff}
+h1{font-size:26px;margin:.2em 0 .1em}h2{font-size:18px;margin:1.6em 0 .3em;border-bottom:2px solid #8fa876;padding-bottom:3px}
+.sub{color:#666;margin:0 0 1em}code{background:#f0f0ec;padding:1px 5px;border-radius:3px;font-family:"DejaVu Sans Mono",monospace;font-size:13px}
+.box{background:#f5f8f1;border-left:4px solid #8fa876;padding:8px 14px;margin:12px 0}li{margin:3px 0}
+</style></head><body>
+<h1>Linux Mint 21 Practice Image</h1>
+<p class="sub">Unique identifier: <code>MINT21-PRACTICE-1</code> &middot; Unofficial practice simulator</p>
 
-export function readmeHtml({ studentPassword = 'cyberpatriot' } = {}) {
-  const li = (a) => a.map((u) => `<li>${esc(u)}</li>`).join('');
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Mint Practice Round 1 - README</title>
-<style>body{font-family:sans-serif;max-width:46em;margin:2em auto;line-height:1.45}h1{text-align:center}code{background:#eee;padding:0 .3em}</style></head>
-<body>
-<h1>Linux Mint 21 Practice Image &mdash; Round 1</h1>
-<p><i>Unofficial practice material. This is a simulation and is not affiliated with or endorsed by the Air &amp; Space Forces Association or the CyberPatriot program.</i></p>
-<h2>Scenario</h2>
-<p>This computer belongs to the small, family-run print shop <b>Tri-County Print &amp; Copy</b>. It runs Linux Mint 21.3 and is used by the staff for office work and for the shop's file transfers.
-The owner's nephew set it up over the summer, and the staff suspect that somebody else has been using it. You have been hired as the new IT administrator. Make the computer secure,
-while keeping everything the shop needs working.</p>
-<p>It is critical that you <b>do not</b> remove or disable the software and services listed below. You may be penalized for doing so.</p>
-<h2>Forensics Questions</h2>
-<p>If you have not already, answer the Forensics Questions on the Desktop. Each question has an <code>ANSWER:</code> line at the bottom of its file; type your answer after it and save the file.</p>
-<h2>Authorized Users</h2>
-<p>These are the users the company says should be on this computer. Any other user should be removed. Do not remove any user listed here, and do not change anyone's account type unless this README says to.</p>
-<p><b>Authorized Administrators:</b> (your password is <code>${esc(studentPassword)}</code>)</p>
-<ul>${li(ADMINS)}</ul>
-<p><b>Authorized Users:</b></p>
-<ul>${li(AUTHORIZED)}</ul>
-<p>Only the authorized administrators should have administrative (sudo) privileges.</p>
+<h2>Competition Scenario</h2>
+<p>Apex Robotics is a small engineering firm. The company's workstation is a Linux Mint 21 desktop used by the operations team. After a contractor left, management is worried that the machine has been tampered with. You have been hired as the system administrator. Your job is to find and fix security problems on this computer while keeping it working for the company's real users.</p>
+<p>Some changes may have been made by the former contractor, and some problems are plain misconfigurations. The company does <b>not</b> consider every software package or service a problem: check this README before you remove something.</p>
+
+<div class="box"><b>Forensics questions</b> are on the desktop. Answer them <i>before</i> you delete accounts or files, because the evidence might be in there. Type your answer after <code>ANSWER:</code> and save the file.</div>
+
+<h2>Authorized Administrators and Users</h2>
+<p><b>Authorized Administrators</b> (these users, and only these users, may have administrator / sudo rights):</p>
+<ul>${admins}</ul>
+<p><b>Authorized Users</b> (standard users, no administrator rights):</p>
+<ul>${users}</ul>
+<p>All other accounts on the system are <b>not</b> authorized. Authorized users must keep their accounts; do not delete them. All users must have secure passwords, and nobody may log in as a guest.</p>
+
 <h2>Critical Services</h2>
-<ul><li>OpenSSH &mdash; the shop's contractor connects remotely. Keep the service running and enabled, but secure it.</li></ul>
-<h2>Critical Applications</h2>
-<ul><li>Firefox (keep it installed and up to date)</li></ul>
+<ul><li><b>OpenSSH server</b> (<code>ssh</code>) must be running and enabled at boot. Remote administration depends on it, so lock it down rather than turn it off.</li></ul>
+
+<h2>Critical Programs</h2>
+<ul><li><b>Mozilla Firefox</b> is the company's required web browser and must stay installed and up to date.</li></ul>
+
 <h2>Company Policy</h2>
 <ul>
-<li>No media files (music or video) are allowed on the computer, with the exception of the files under <code>/usr</code>.</li>
-<li>Passwords must never be stored in plain-text files.</li>
-<li>No hacking tools or network-sniffing tools may be installed.</li>
-<li>Passwords should be strong, should expire, and the computer should lock out repeated failed logins.</li>
-<li>The system must check for updates every day.</li>
+<li>Peer-to-peer, hacking, password-cracking and network-sniffing software is prohibited.</li>
+<li>No FTP or Windows file sharing (Samba) is used by this company.</li>
+<li>Personal media files (music, video) are not allowed on company computers.</li>
+<li>Plaintext files that contain user passwords are prohibited.</li>
+<li>The firewall must be enabled, the system must check for updates automatically, and a sensible password and account-lockout policy must be in place.</li>
+<li><code>sudo</code> must always require the user's password.</li>
+<li>Remote login as <code>root</code> over SSH is not allowed, and neither are empty passwords.</li>
 </ul>
-<h2>Competition Guidelines</h2>
-<p>Any password you set must be at least 10 characters. Do not modify the Scoring Report or the README. Good luck!</p>
+
+<h2>Tips</h2>
+<ul>
+<li>Open the <b>Scoring Report</b> on the desktop to see how many issues you have fixed. It does not tell you what is left.</li>
+<li>Everything here works like a real Linux Mint machine: the Terminal, the Users and Groups app, Update Manager, Software Manager and Firewall Configuration all change the same system.</li>
+<li>If you remove or break something the company needs, you will lose points.</li>
+</ul>
 </body></html>`;
 }

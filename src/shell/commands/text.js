@@ -1,198 +1,332 @@
-// Text-processing commands: grep, sed, awk, sort, uniq, cut, tr, xargs, ...
-import { def } from '../registry.js';
-import { CmdError } from '../../core/errors.js';
+// Text processing: cat, head, tail, wc, grep, sed, awk, cut, sort, uniq, tr, tee, xargs, ...
+import { cmd, parseOpts, usageError } from '../registry.js';
 import { FsError } from '../../core/vfs.js';
-import { posix, globToRegex } from '../../core/util.js';
-import { getopt, eachInput, lines } from './util.js';
-import { unescape } from './builtins.js';
+import { sha256hex, md5ish, posix } from '../../core/util.js';
+import { formatPrintf } from './builtins.js';
 
-/** POSIX BRE/ERE to a JS RegExp source. */
-export function toJsRegex(pat, { ere = false, fixed = false } = {}) {
-  if (fixed) return pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  let out = ''; let inBracket = false;
+// ---------------------------------------------------------------- regex translation (POSIX BRE/ERE -> JS)
+const CLASSES = { alpha: 'a-zA-Z', digit: '0-9', alnum: 'a-zA-Z0-9', upper: 'A-Z', lower: 'a-z', space: '\\s', blank: ' \\t', punct: '!-\\/:-@\\[-`{-~', xdigit: '0-9a-fA-F', word: '\\w' };
+
+export function posixRegex(pat, { ere = false, icase = false, word = false, line = false, flags = '' } = {}) {
+  let out = '';
   for (let i = 0; i < pat.length; i++) {
     const c = pat[i];
-    if (inBracket) { if (c === ']' && pat[i - 1] !== '[' && !(pat[i - 1] === '^' && pat[i - 2] === '[')) inBracket = false; out += c === '\\' ? '\\\\' : c; continue; }
     if (c === '[') {
-      const m = /^\[(\^?)\[:(alpha|digit|alnum|upper|lower|space|punct|blank|xdigit):\]/.exec(pat.slice(i));
-      inBracket = true; out += c; if (m) { /* handled below via replace */ } continue;
+      let j = i + 1;
+      let cls = '[';
+      if (pat[j] === '^') { cls += '^'; j++; }
+      if (pat[j] === ']') { cls += '\\]'; j++; }
+      for (; j < pat.length && pat[j] !== ']'; j++) {
+        if (pat[j] === '[' && pat[j + 1] === ':') {
+          const e = pat.indexOf(':]', j + 2);
+          if (e > 0) { cls += CLASSES[pat.slice(j + 2, e)] || ''; j = e + 1; continue; }
+        }
+        cls += pat[j] === '\\' ? '\\\\' : pat[j] === '[' ? '\\[' : pat[j];
+      }
+      out += cls + ']'; i = j; continue;
     }
     if (c === '\\' && i + 1 < pat.length) {
-      const n = pat[++i];
-      if (!ere && '(){}|+?'.includes(n)) out += n; else if (n === '<' || n === '>') out += '\\b'; else out += '\\' + n;
+      const d = pat[++i];
+      if (!ere && '(){}|+?'.includes(d)) out += d;
+      else if (d === '<' || d === '>') out += '\\b';
+      else if ('wWsSbBdD'.includes(d)) out += '\\' + d;
+      else if (/[0-9]/.test(d)) out += '\\' + d;
+      else out += '\\' + d;
       continue;
     }
     if (!ere && '(){}|+?'.includes(c)) { out += '\\' + c; continue; }
+    if (c === '*' && (out === '' || out.endsWith('(') && false)) { out += '\\*'; continue; }
+    if (c === '{' && ere && !/^\{\d+(,\d*)?\}/.test(pat.slice(i))) { out += '\\{'; continue; }
     out += c;
   }
-  return out.replace(/\[:alpha:\]/g, 'a-zA-Z').replace(/\[:digit:\]/g, '0-9').replace(/\[:alnum:\]/g, 'a-zA-Z0-9').replace(/\[:upper:\]/g, 'A-Z').replace(/\[:lower:\]/g, 'a-z').replace(/\[:space:\]/g, '\\s').replace(/\[:punct:\]/g, '!-\\/:-@\\[-`{-~').replace(/\[:blank:\]/g, ' \\t').replace(/\[:xdigit:\]/g, '0-9a-fA-F');
+  if (word) out = `(?<![\\w])(?:${out})(?![\\w])`;
+  if (line) out = `^(?:${out})$`;
+  try { return new RegExp(out, (icase ? 'i' : '') + flags); } catch { return null; }
 }
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// ------------------------------------------------------------------ grep
-def(['grep', 'egrep', 'fgrep'], (ctx) => {
-  const { opts, all, rest } = getopt(ctx, ctx.args, {
-    flags: 'EFivnrRlLcwxoqshHaIPz', withArg: 'efmABC',
-    long: { 'ignore-case': 'i', 'invert-match': 'v', 'line-number': 'n', recursive: 'r', 'files-with-matches': 'l', count: 'c', 'word-regexp': 'w', 'only-matching': 'o', quiet: 'q', silent: 'q', 'no-messages': 's', 'with-filename': 'H', 'no-filename': 'h', color: ['color', true], colour: ['color', true], include: ['include', true], exclude: ['exclude', true], 'exclude-dir': ['xdir', true], 'extended-regexp': 'E', 'fixed-strings': 'F', 'max-count': ['m', true], 'perl-regexp': 'P', text: 'a', 'files-without-match': 'L' },
+// ---------------------------------------------------------------- file reading helper
+export function readInput(ctx, path) {
+  try { return { text: ctx.fs.readFile(ctx.resolve(path)) }; } catch (e) {
+    if (e instanceof FsError) return { error: e.text };
+    throw e;
+  }
+}
+const lines = (t) => { const a = t.split('\n'); if (a[a.length - 1] === '') a.pop(); return a; };
+
+// ---------------------------------------------------------------- cat / tac / rev / tee / head / tail / wc
+cmd('cat', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 'nAbEsTv', long: { number: 'n', 'show-all': 'A' } });
+  if (err) return usageError(ctx, err);
+  let rc = 0; let n = 0;
+  const emit = (t) => {
+    if (o.n || o.b || o.A || o.E) {
+      const ls = t.split('\n'); const trail = ls[ls.length - 1] === ''; if (trail) ls.pop();
+      ctx.out(ls.map((l) => { const body = (o.A || o.E) ? l + '$' : l; if (o.b && l === '') return body; return o.n || o.b ? `${String(++n).padStart(6)}\t${body}` : body; }).join('\n') + (trail ? '\n' : ''));
+    } else ctx.out(t);
+  };
+  if (!rest.length) { emit(await ctx.stdinText()); return 0; }
+  for (const f of rest) {
+    if (f === '-') { emit(ctx.readAll()); continue; }
+    const r = readInput(ctx, f);
+    if (r.error) { ctx.err(`cat: ${f}: ${r.error}\n`); rc = 1; } else emit(r.text);
+  }
+  return rc;
+}, { usage: 'cat [OPTION]... [FILE]...' });
+
+cmd('tac', async (ctx) => { const t = rest0(ctx) ?? (await ctx.stdinText()); ctx.out(lines(t).reverse().join('\n') + '\n'); return 0; });
+cmd('rev', async (ctx) => { const t = rest0(ctx) ?? (await ctx.stdinText()); ctx.out(lines(t).map((l) => [...l].reverse().join('')).join('\n') + '\n'); return 0; });
+function rest0(ctx) { const f = ctx.args.filter((a) => !a.startsWith('-'))[0]; if (!f) return null; const r = readInput(ctx, f); if (r.error) { ctx.err(`${ctx.name}: ${f}: ${r.error}\n`); return ''; } return r.text; }
+
+cmd('tee', async (ctx) => {
+  const { o, rest } = parseOpts(ctx.args, { bool: 'ai' });
+  const text = await ctx.stdinText();
+  ctx.out(text);
+  let rc = 0;
+  for (const f of rest) {
+    try { ctx.fs.writeFile(ctx.resolve(f), text, { append: !!o.a }); } catch (e) { if (e instanceof FsError) { ctx.err(`tee: ${f}: ${e.text}\n`); rc = 1; } else throw e; }
+  }
+  return rc;
+});
+
+function headTail(ctx, isHead) {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 'qvf', val: 'nc', num: true, long: { lines: { key: 'n', val: true }, bytes: { key: 'c', val: true }, quiet: 'q' } });
+  if (err) return usageError(ctx, err);
+  const spec = o.n ?? o.num ?? '10';
+  const files = rest.length ? rest : [null];
+  let rc = 0;
+  files.forEach((f, idx) => {
+    let text;
+    if (f == null) text = ctx.readAll();
+    else { const r = readInput(ctx, f); if (r.error) { ctx.err(`${ctx.name}: cannot open '${f}' for reading: ${r.error}\n`); rc = 1; return; } text = r.text; }
+    if (files.length > 1 && !o.q) ctx.out(`${idx ? '\n' : ''}==> ${f ?? 'standard input'} <==\n`);
+    if (o.c != null) { ctx.out(isHead ? text.slice(0, Number(o.c)) : text.slice(-Number(o.c))); return; }
+    const ls = lines(text);
+    const plus = String(spec).startsWith('+');
+    const n = Math.abs(Number(String(spec).replace('+', '')));
+    let sel;
+    if (isHead) sel = String(spec).startsWith('-') ? ls.slice(0, Math.max(0, ls.length - n)) : ls.slice(0, n);
+    else sel = plus ? ls.slice(n - 1) : ls.slice(Math.max(0, ls.length - n));
+    if (sel.length) ctx.out(sel.join('\n') + '\n');
   });
-  const pats = [...(all.e || [])]; const operands = [...rest];
-  if (!pats.length) { if (!operands.length) throw new CmdError('Usage: grep [OPTION]... PATTERNS [FILE]...\nTry \'grep --help\' for more information.', 2); pats.push(operands.shift()); }
-  const ere = opts.E || opts.P || ctx.name === 'egrep'; const fixed = opts.F || ctx.name === 'fgrep';
-  const source = pats.flatMap((p) => p.split('\n')).map((p) => toJsRegex(p, { ere, fixed })).map((s) => (opts.w ? `\\b(?:${s})\\b` : opts.x ? `^(?:${s})$` : s)).join('|');
-  let re;
-  try { re = new RegExp(source, opts.i ? 'gi' : 'g'); } catch { throw new CmdError('grep: Unmatched ( or \\(', 2); }
-  const color = !!opts.color && opts.color !== 'never' && (opts.color === 'always' || ctx.tty);
-  const recursive = opts.r || opts.R;
-  const A = Number(opts.A ?? opts.C ?? 0); const B = Number(opts.B ?? opts.C ?? 0);
-  const files = operands.length ? operands : recursive ? ['.'] : ['-'];
-  const showName = opts.H || (!opts.h && (files.length > 1 || recursive));
-  const inc = opts.include ? globToRegex(opts.include) : null; const exc = opts.exclude ? globToRegex(opts.exclude) : null; const xdir = opts.xdir ? globToRegex(opts.xdir) : null;
-  let matchedAny = false; let code = 0; const max = opts.m ? Number(opts.m) : Infinity;
-  const sepc = (s) => (color ? `\u001b[36m\u001b[K${s}\u001b[m\u001b[K` : s);
-  const namec = (n) => (color ? `\u001b[35m\u001b[K${n}\u001b[m\u001b[K` : n);
-  const hl = (line) => (color && !opts.v ? line.replace(re, (m) => (m ? `\u001b[01;31m\u001b[K${m}\u001b[m\u001b[K` : m)) : line);
-  const scan = (text, label) => {
-    if (/\u0000/.test(text) && !opts.a) { re.lastIndex = 0; if (re.test(text) !== !!opts.v && !opts.q && !opts.c && !opts.l) { ctx.out(`grep: ${label}: binary file matches\n`.replace('grep: ', 'Binary file ').replace(': binary file matches', ' matches')); matchedAny = true; } return; }
-    const ls = text.split('\n'); if (ls[ls.length - 1] === '') ls.pop();
-    let count = 0; let lastPrinted = -1;
-    const prefix = (i, sep) => (showName ? namec(label) + sepc(sep) : '') + (opts.n ? (color ? `\u001b[32m\u001b[K${i + 1}\u001b[m\u001b[K` : String(i + 1)) + sepc(sep) : '');
-    for (let i = 0; i < ls.length && count < max; i++) {
-      re.lastIndex = 0;
-      const hit = re.test(ls[i]); re.lastIndex = 0;
-      if (hit !== !!opts.v) {
-        count++; matchedAny = true;
-        if (opts.q || opts.l || opts.L || opts.c) { if (opts.q || opts.l) break; continue; }
-        for (let b = Math.max(lastPrinted + 1, i - B); b < i; b++) ctx.out(prefix(b, '-') + ls[b] + '\n');
-        if (opts.o) { for (const m of ls[i].matchAll(re)) if (m[0]) ctx.out(prefix(i, ':') + (color ? `\u001b[01;31m\u001b[K${m[0]}\u001b[m\u001b[K` : m[0]) + '\n'); }
-        else ctx.out(prefix(i, ':') + hl(ls[i]) + '\n');
-        lastPrinted = i;
-        for (let a = i + 1; a <= Math.min(ls.length - 1, i + A); a++) { re.lastIndex = 0; if (re.test(ls[a]) !== !!opts.v) break; ctx.out(prefix(a, '-') + ls[a] + '\n'); lastPrinted = a; }
+  return rc;
+}
+cmd('head', (ctx) => headTail(ctx, true), { usage: 'head [OPTION]... [FILE]...' });
+cmd('tail', (ctx) => headTail(ctx, false), { usage: 'tail [OPTION]... [FILE]...' });
+
+cmd('wc', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 'lwcmL' });
+  if (err) return usageError(ctx, err);
+  const all = !o.l && !o.w && !o.c && !o.m;
+  const rows = [];
+  let rc = 0;
+  const count = (t) => ({ l: (t.match(/\n/g) || []).length, w: (t.trim() ? t.trim().split(/\s+/).length : 0), c: new TextEncoder().encode(t).length, m: [...t].length });
+  if (!rest.length) rows.push([null, count(await ctx.stdinText())]);
+  for (const f of rest) { const r = readInput(ctx, f); if (r.error) { ctx.err(`wc: ${f}: ${r.error}\n`); rc = 1; } else rows.push([f, count(r.text)]); }
+  if (rest.length > 1) rows.push(['total', rows.reduce((a, [, c]) => ({ l: a.l + c.l, w: a.w + c.w, c: a.c + c.c, m: a.m + c.m }), { l: 0, w: 0, c: 0, m: 0 })]);
+  const cols = all ? ['l', 'w', 'c'] : ['l', 'w', 'c', 'm'].filter((k) => o[k]);
+  const width = Math.max(...rows.flatMap(([, c]) => cols.map((k) => String(c[k]).length)), 1);
+  for (const [name, c] of rows) ctx.out(cols.map((k) => (cols.length === 1 && name == null ? String(c[k]) : String(c[k]).padStart(width))).join(' ') + (name != null ? ' ' + name : '') + '\n');
+  return rc;
+});
+
+// ---------------------------------------------------------------- grep
+cmd(['grep', 'egrep', 'fgrep', 'rgrep'], async (ctx) => {
+  const args = [];
+  const pats = [];
+  for (let i = 0; i < ctx.args.length; i++) {
+    const a = ctx.args[i];
+    if (a === '-e' && i + 1 < ctx.args.length) { pats.push(ctx.args[++i]); continue; }
+    if (a.startsWith('--regexp=')) { pats.push(a.slice(9)); continue; }
+    args.push(a);
+  }
+  const { o, rest, err } = parseOpts(args, {
+    bool: 'ivncrRlLEFPwxoqsHhzaI', val: 'ABCm', num: true,
+    long: { 'ignore-case': 'i', 'invert-match': 'v', 'line-number': 'n', count: 'c', recursive: 'r', 'dereference-recursive': 'R', 'files-with-matches': 'l', 'files-without-match': 'L', 'extended-regexp': 'E', 'fixed-strings': 'F', 'perl-regexp': 'P', 'word-regexp': 'w', 'line-regexp': 'x', 'only-matching': 'o', quiet: 'q', silent: 'q', 'no-messages': 's', 'with-filename': 'H', 'no-filename': 'h', color: { key: 'color', val: true, optional: true }, colour: { key: 'color', val: true, optional: true }, include: { key: 'include', val: true }, exclude: { key: 'exclude', val: true }, 'exclude-dir': { key: 'exdir', val: true }, 'after-context': { key: 'A', val: true }, 'before-context': { key: 'B', val: true }, context: { key: 'C', val: true }, text: 'a', 'max-count': { key: 'm', val: true }, 'binary-files': { key: 'binfiles', val: true } },
+  });
+  if (err) { ctx.err(`grep: ${err}\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n`); return 2; }
+  const files = [...rest];
+  if (!pats.length) { if (!files.length) { ctx.err("Usage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n"); return 2; } pats.push(...files.shift().split('\n')); }
+  const fixed = o.F || ctx.name === 'fgrep';
+  const ere = o.E || o.P || ctx.name === 'egrep';
+  const rec = o.r || o.R || ctx.name === 'rgrep';
+  const res = pats.map((p) => (fixed ? new RegExp(escapeRe(p), o.i ? 'i' : '') : posixRegex(p, { ere, icase: !!o.i, word: !!o.w, line: !!o.x })));
+  if (res.some((r) => !r)) { ctx.err('grep: Invalid regular expression\n'); return 2; }
+  const color = o.color === 'always' || ((o.color === true || o.color === 'auto') && ctx.tty);
+  const A = Number(o.A ?? o.C ?? o.num ?? 0); const B = Number(o.B ?? o.C ?? o.num ?? 0);
+  const inc = o.include ? new RegExp('^' + escapeRe(o.include).replace(/\\\*/g, '.*').replace(/\\\?/g, '.') + '$') : null;
+  const exc = o.exclude ? new RegExp('^' + escapeRe(o.exclude).replace(/\\\*/g, '.*').replace(/\\\?/g, '.') + '$') : null;
+
+  // build the file list
+  const targets = [];
+  const addDir = (dir, shown) => {
+    let names;
+    try { names = ctx.fs.readdir(dir); } catch (e) { if (e instanceof FsError) { if (!o.s) ctx.err(`grep: ${shown}: ${e.text}\n`); return; } throw e; }
+    for (const n of names.sort()) {
+      const full = posix.join(dir, n); const sh = shown === '' ? n : `${shown.replace(/\/$/, '')}/${n}`;
+      let st;
+      try { st = ctx.fs.lstat(full); } catch { continue; }
+      if (st.type === 'dir') { if (o.exdir && n === o.exdir) continue; addDir(full, sh); } else if (st.type === 'file' || (o.R && st.type === 'link')) targets.push([full, sh]);
+    }
+  };
+  if (!files.length) { if (rec) addDir(ctx.cwd, ''); else targets.push([null, '(standard input)']); }
+  for (const f of files) {
+    const abs = ctx.resolve(f);
+    let st = null;
+    try { st = ctx.fs.stat(abs); } catch (e) { if (e instanceof FsError) { if (!o.s) ctx.err(`grep: ${f}: ${e.text}\n`); targets.push(null); continue; } throw e; }
+    if (st.type === 'dir') { if (rec) addDir(abs, f); else { if (!o.s) ctx.err(`grep: ${f}: Is a directory\n`); } } else targets.push([abs, f]);
+  }
+  const showName = o.H || (!o.h && (files.length > 1 || rec));
+  let any = false; let hadErr = files.length && targets.includes(null);
+  const hl = (line) => {
+    if (!color || o.v) return line;
+    let r = line; const ranges = [];
+    for (const re of res) { const g = new RegExp(re.source, re.flags + 'g'); let m; while ((m = g.exec(line))) { if (m[0] === '') { g.lastIndex++; continue; } ranges.push([m.index, m.index + m[0].length]); } }
+    if (!ranges.length) return line;
+    ranges.sort((a, b) => a[0] - b[0]);
+    r = ''; let pos = 0;
+    for (const [s, e] of ranges) { if (s < pos) continue; r += line.slice(pos, s) + '\u001b[01;31m\u001b[K' + line.slice(s, e) + '\u001b[m\u001b[K'; pos = e; }
+    return r + line.slice(pos);
+  };
+  for (const t of targets) {
+    if (!t) continue;
+    const [abs, shown] = t;
+    if (inc && !inc.test(posix.basename(shown))) continue;
+    if (exc && exc.test(posix.basename(shown))) continue;
+    let text;
+    if (abs == null) text = ctx.stdin ? ctx.readAll() : await ctx.stdinText();
+    else { const r = readInput(ctx, abs); if (r.error) { if (!o.s) ctx.err(`grep: ${shown}: ${r.error}\n`); hadErr = true; continue; } text = r.text; }
+    if (!o.a && (text.includes('\u0000') || text.startsWith('\u007fELF')) ) {
+      const m = lines(text).some((l) => (res.some((re) => re.test(l)) !== !!o.v));
+      if (m) { any = true; if (!o.q && !o.c) ctx.out(`grep: ${shown}: binary file matches\n`); }
+      continue;
+    }
+    const ls = lines(text);
+    let count = 0; let last = -1; let printedAny = false;
+    const prefix = (n, sep) => (showName ? (color ? `\u001b[35m\u001b[K${shown}\u001b[m\u001b[K\u001b[36m\u001b[K${sep}\u001b[m\u001b[K` : `${shown}${sep}`) : '') + (o.n ? (color ? `\u001b[32m\u001b[K${n + 1}\u001b[m\u001b[K\u001b[36m\u001b[K${sep}\u001b[m\u001b[K` : `${n + 1}${sep}`) : '');
+    for (let i = 0; i < ls.length; i++) {
+      const hit = res.some((re) => re.test(ls[i])) !== !!o.v;
+      if (!hit) continue;
+      count++; any = true;
+      if (o.q) return 0;
+      if (o.l || o.L) break;
+      if (o.m && count > Number(o.m)) break;
+      if (!o.c) {
+        if (o.o && !o.v) {
+          for (const re of res) { const g = new RegExp(re.source, re.flags + 'g'); let m; while ((m = g.exec(ls[i]))) { if (m[0] === '') { g.lastIndex++; continue; } ctx.out(prefix(i, ':') + (color ? `\u001b[01;31m\u001b[K${m[0]}\u001b[m\u001b[K` : m[0]) + '\n'); } }
+        } else {
+          if (B || A) { const from = Math.max(last + 1, i - B); if (printedAny && from > last + 1) ctx.out('--\n'); for (let k = from; k < i; k++) ctx.out(prefix(k, '-') + ls[k] + '\n'); }
+          ctx.out(prefix(i, ':') + hl(ls[i]) + '\n');
+          if (A) { for (let k = i + 1; k <= Math.min(ls.length - 1, i + A); k++) { if (res.some((re) => re.test(ls[k])) !== !!o.v) break; } }
+          printedAny = true; last = i;
+          if (A) { let k = i + 1; for (; k <= Math.min(ls.length - 1, i + A); k++) { if (res.some((re) => re.test(ls[k])) !== !!o.v) { ctx.out(prefix(k, '-') + ls[k] + '\n'); last = k; } else break; } }
+        }
       }
     }
-    if (opts.c) ctx.out((showName ? namec(label) + sepc(':') : '') + count + '\n');
-    if (opts.l && count) ctx.out(namec(label) + '\n');
-    if (opts.L && !count) ctx.out(namec(label) + '\n');
+    if (o.c) ctx.out((showName ? `${shown}:` : '') + count + '\n');
+    if (o.l && count) ctx.out(`${shown}\n`);
+    if (o.L && !count) ctx.out(`${shown}\n`);
+  }
+  if (hadErr && !any) return 2;
+  return any ? 0 : 1;
+}, { usage: 'grep [OPTION]... PATTERNS [FILE]...' });
+
+// ---------------------------------------------------------------- sort / uniq / cut / tr
+cmd('sort', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 'rnuhfbVMc', val: 'kto', long: { reverse: 'r', numeric: 'n', unique: 'u', 'ignore-case': 'f', 'field-separator': { key: 't', val: true }, key: { key: 'k', val: true }, output: { key: 'o', val: true } } });
+  if (err) return usageError(ctx, err);
+  let text = '';
+  if (!rest.length) text = await ctx.stdinText();
+  for (const f of rest) { const r = readInput(ctx, f); if (r.error) { ctx.err(`sort: cannot read: ${f}: ${r.error}\n`); return 2; } text += r.text; }
+  let ls = lines(text);
+  const key = (l) => {
+    let v = l;
+    if (o.k) { const [spec] = String(o.k).split(','); const n = Number(spec.split('.')[0]) - 1; const f = o.t ? l.split(o.t) : l.trim().split(/\s+/); v = (o.k.includes(',') ? f.slice(n, Number(String(o.k).split(',')[1]) || undefined) : f.slice(n)).join(o.t || ' '); }
+    if (o.f) v = v.toLowerCase();
+    if (o.b) v = v.trimStart();
+    return v;
   };
-  const walk = (p, shown, top) => {
-    let st; try { st = ctx.fs.stat(p); } catch (e) { if (e instanceof FsError) { if (!opts.s) ctx.err(`grep: ${shown}: ${e.text}\n`); code = 2; return; } throw e; }
-    if (st.type === 'dir') {
-      if (!recursive) { if (!opts.s) ctx.err(`grep: ${shown}: Is a directory\n`); return; }
-      if (!top && xdir && xdir.test(posix.basename(p))) return;
-      let names; try { names = ctx.fs.readdir(p); } catch (e) { if (e instanceof FsError) { if (!opts.s) ctx.err(`grep: ${shown}: ${e.text}\n`); code = 2; return; } throw e; }
-      for (const n of names.sort()) { const q = posix.join(p, n); if (ctx.sys.vfs.lookup(q, { follow: false })?.t === 'l') continue; walk(q, shown === '.' && top && !operands.length ? n : `${shown.replace(/\/$/, '')}/${n}`, false); }
-      return;
-    }
-    const base = posix.basename(p);
-    if ((inc && !inc.test(base)) || (exc && exc.test(base))) return;
-    try { scan(ctx.fs.readFile(p), shown); } catch (e) { if (e instanceof FsError) { if (!opts.s) ctx.err(`grep: ${shown}: ${e.text}\n`); code = 2; } else throw e; }
+  const cmpF = (a, b) => {
+    const x = key(a); const y = key(b);
+    if (o.n || o.h) { const d = (parseFloat(x) || 0) - (parseFloat(y) || 0); if (d) return d; return 0; }
+    if (o.V) return x.localeCompare(y, undefined, { numeric: true });
+    return x < y ? -1 : x > y ? 1 : 0;
   };
-  for (const f of files) { if (f === '-') scan(ctx.stdin, '(standard input)'); else walk(ctx.abs(f), f, true); }
-  return code === 2 && !opts.q ? 2 : matchedAny ? 0 : 1;
+  const coll = (a, b) => { const d = cmpF(a, b); if (d) return d; const x = a.toLowerCase(); const y = b.toLowerCase(); return o.n ? 0 : x < y ? -1 : x > y ? 1 : a < b ? 1 : a > b ? -1 : 0; };
+  ls.sort(o.n || o.V || o.h ? cmpF : (a, b) => { const x = key(a).toLowerCase().replace(/[^a-z0-9]/g, ''); const y = key(b).toLowerCase().replace(/[^a-z0-9]/g, ''); return x < y ? -1 : x > y ? 1 : coll(a, b); });
+  if (o.r) ls.reverse();
+  if (o.u) ls = ls.filter((l, i) => i === 0 || cmpF(l, ls[i - 1]) !== 0);
+  const outText = ls.length ? ls.join('\n') + '\n' : '';
+  if (o.o) { try { ctx.fs.writeFile(ctx.resolve(o.o), outText); } catch (e) { if (e instanceof FsError) return ctx.fsErr(e, o.o); throw e; } } else ctx.out(outText);
+  return 0;
 });
 
-// ------------------------------------------------------------------ sort / uniq / cut / tr / rev / nl
-def('sort', (ctx) => {
-  const { opts, all, rest } = getopt(ctx, ctx.args, { flags: 'nrufhVbcMdgs', withArg: 'kto', long: { reverse: 'r', unique: 'u', 'numeric-sort': 'n', 'field-separator': ['t', true], key: ['k', true] } });
-  let ls = [];
-  const code = eachInput(ctx, rest, (t) => ls.push(...lines(t)));
-  const keys = (all.k || []).map((k) => { const m = /^(\d+)(?:\.\d+)?(?:,(\d+))?([a-zA-Z]*)/.exec(k); return { from: Number(m[1]), to: Number(m[2] || m[1]), n: /n/.test(m[3]), r: /r/.test(m[3]) }; });
-  const fieldsOf = (l) => (opts.t ? l.split(opts.t) : l.trim().split(/\s+/));
-  const keyOf = (l, k) => { const f = fieldsOf(l); return f.slice(k.from - 1, k.to).join(opts.t || ' '); };
-  const num = (s) => { const m = /^\s*(-?\d+(?:\.\d+)?)/.exec(s); return m ? Number(m[1]) : 0; };
-  const human = (s) => { const m = /^\s*([\d.]+)([KMGT]?)/.exec(s); return m ? Number(m[1]) * ({ '': 1, K: 1e3, M: 1e6, G: 1e9, T: 1e12 }[m[2]]) : 0; };
-  const cmp = (a, b) => {
-    if (keys.length) { for (const k of keys) { const x = keyOf(a, k); const y = keyOf(b, k); const d = k.n || opts.n ? num(x) - num(y) : opts.f ? x.toLowerCase().localeCompare(y.toLowerCase()) : x < y ? -1 : x > y ? 1 : 0; if (d) return k.r ? -d : d; } return 0; }
-    if (opts.n) return num(a) - num(b);
-    if (opts.h) return human(a) - human(b);
-    if (opts.V) return a.localeCompare(b, undefined, { numeric: true });
-    const x = opts.f ? a.toLowerCase() : a; const y = opts.f ? b.toLowerCase() : b;
-    const kx = x.replace(/[^A-Za-z0-9]/g, '').toLowerCase(); const ky = y.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
-    return kx < ky ? -1 : kx > ky ? 1 : x < y ? 1 : x > y ? -1 : 0;
-  };
-  ls.sort(cmp); if (opts.r) ls.reverse();
-  if (opts.u) ls = ls.filter((l, i) => i === 0 || cmp(ls[i - 1], l) !== 0);
-  ctx.out(ls.map((l) => l + '\n').join(''));
-  return code;
+cmd('uniq', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 'cdui', long: { count: 'c', repeated: 'd', unique: 'u', 'ignore-case': 'i' } });
+  if (err) return usageError(ctx, err);
+  const text = rest.length ? (readInput(ctx, rest[0]).text ?? '') : await ctx.stdinText();
+  const ls = lines(text); const out = [];
+  const same = (a, b) => (o.i ? a.toLowerCase() === b.toLowerCase() : a === b);
+  for (const l of ls) { const last = out[out.length - 1]; if (last && same(last.l, l)) last.n++; else out.push({ l, n: 1 }); }
+  for (const e of out) { if (o.d && e.n < 2) continue; if (o.u && e.n > 1) continue; ctx.out((o.c ? `${String(e.n).padStart(7)} ` : '') + e.l + '\n'); }
+  return 0;
 });
-def('uniq', (ctx) => {
-  const { opts, rest } = getopt(ctx, ctx.args, { flags: 'cduiD', withArg: 'fsw' });
-  const ls = []; eachInput(ctx, rest.slice(0, 1), (t) => ls.push(...lines(t)));
-  const groups = [];
-  for (const l of ls) { const last = groups[groups.length - 1]; const k = opts.i ? l.toLowerCase() : l; if (last && last.k === k) last.n++; else groups.push({ k, l, n: 1 }); }
-  for (const g of groups) { if (opts.d && g.n < 2) continue; if (opts.u && g.n > 1) continue; ctx.out(`${opts.c ? String(g.n).padStart(7) + ' ' : ''}${g.l}\n`); }
+
+function parseList(spec) {
+  const parts = spec.split(',').map((p) => { const m = /^(\d*)-(\d*)$/.exec(p); if (m) return [m[1] ? Number(m[1]) : 1, m[2] ? Number(m[2]) : Infinity]; return [Number(p), Number(p)]; });
+  return (i) => parts.some(([a, b]) => i >= a && i <= b);
+}
+cmd('cut', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 's', val: 'dfcb', long: { delimiter: { key: 'd', val: true }, fields: { key: 'f', val: true }, characters: { key: 'c', val: true }, 'only-delimited': 's' } });
+  if (err) return usageError(ctx, err);
+  if (o.f == null && o.c == null && o.b == null) { ctx.err("cut: you must specify a list of bytes, characters, or fields\nTry 'cut --help' for more information.\n"); return 1; }
+  const d = o.d ?? '\t';
+  let text = '';
+  if (!rest.length) text = await ctx.stdinText();
+  for (const f of rest) { const r = readInput(ctx, f); if (r.error) { ctx.err(`cut: ${f}: ${r.error}\n`); return 1; } text += r.text; }
+  const sel = parseList(o.f ?? o.c ?? o.b);
+  for (const l of lines(text)) {
+    if (o.f != null) {
+      if (!l.includes(d)) { if (!o.s) ctx.out(l + '\n'); continue; }
+      ctx.out(l.split(d).filter((_, i) => sel(i + 1)).join(d) + '\n');
+    } else ctx.out([...l].filter((_, i) => sel(i + 1)).join('') + '\n');
+  }
+  return 0;
 });
-def('cut', (ctx) => {
-  const { opts, rest } = getopt(ctx, ctx.args, { flags: 's', withArg: 'dfcb', long: { delimiter: ['d', true], fields: ['f', true], characters: ['c', true], 'only-delimited': 's' } });
-  const spec = opts.f ?? opts.c ?? opts.b; if (spec === undefined) throw new CmdError('cut: you must specify a list of bytes, characters, or fields', 1);
-  const ranges = String(spec).split(',').map((r) => { const [a, b] = r.split('-'); return [a === '' ? 1 : Number(a), r.includes('-') ? (b === '' ? Infinity : Number(b)) : Number(a)]; });
-  const inR = (i) => ranges.some(([a, b]) => i >= a && i <= b);
-  const d = opts.d ?? '\t';
-  return eachInput(ctx, rest, (t) => { for (const l of lines(t)) {
-    if (opts.f !== undefined) { if (!l.includes(d)) { if (!opts.s) ctx.out(l + '\n'); continue; } ctx.out(l.split(d).filter((_, i) => inR(i + 1)).join(d) + '\n'); }
-    else ctx.out([...l].filter((_, i) => inR(i + 1)).join('') + '\n');
-  } });
-});
+
 function expandSet(s) {
-  s = s.replace(/\[:upper:\]/g, 'A-Z').replace(/\[:lower:\]/g, 'a-z').replace(/\[:digit:\]/g, '0-9').replace(/\[:alpha:\]/g, 'A-Za-z').replace(/\[:alnum:\]/g, 'A-Za-z0-9').replace(/\[:space:\]/g, ' \t\n\r').replace(/\[:punct:\]/g, '!-/:-@[-`{-~');
-  s = unescape(s); const out = [];
-  for (let i = 0; i < s.length; i++) { if (s[i + 1] === '-' && i + 2 < s.length) { for (let c = s.charCodeAt(i); c <= s.charCodeAt(i + 2); c++) out.push(String.fromCharCode(c)); i += 2; } else out.push(s[i]); }
+  let out = '';
+  s = s.replace(/\[:(\w+):\]/g, (_, n) => ({ lower: 'abcdefghijklmnopqrstuvwxyz', upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', digit: '0123456789', alpha: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', alnum: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', space: ' \t\n', punct: '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~' }[n] || ''));
+  s = s.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+  for (let i = 0; i < s.length; i++) { if (s[i + 1] === '-' && i + 2 < s.length) { for (let c = s.charCodeAt(i); c <= s.charCodeAt(i + 2); c++) out += String.fromCharCode(c); i += 2; } else out += s[i]; }
   return out;
 }
-def('tr', (ctx) => {
-  const { opts, rest } = getopt(ctx, ctx.args, { flags: 'dsc', long: { delete: 'd', 'squeeze-repeats': 's', complement: 'c' } });
-  let from = expandSet(rest[0] ?? ''); const to = expandSet(rest[1] ?? '');
-  let t = ctx.stdin; const set = new Set(from);
-  const inSet = (ch) => (opts.c ? !set.has(ch) : set.has(ch));
-  if (opts.d) t = [...t].filter((c) => !inSet(c)).join('');
-  else if (to.length || !opts.s) t = [...t].map((c) => { if (!inSet(c)) return c; const i = from.indexOf(c); return to.length ? (opts.c ? to[to.length - 1] : to[Math.min(i, to.length - 1)]) : c; }).join('');
-  if (opts.s) { const sq = new Set(to.length ? to : from); t = t.replace(/(.)\1+/gs, (m, c) => (sq.has(c) ? c : m)); }
-  ctx.out(t);
-});
-def('rev', (ctx) => eachInput(ctx, ctx.args, (t) => lines(t).forEach((l) => ctx.out([...l].reverse().join('') + '\n'))));
-def('nl', (ctx) => { let n = 0; eachInput(ctx, ctx.args.filter((a) => !a.startsWith('-')), (t) => lines(t).forEach((l) => ctx.out(l === '' ? '\n' : `${String(++n).padStart(6)}\t${l}\n`))); });
-def('column', (ctx) => {
-  const { opts, rest } = getopt(ctx, ctx.args, { flags: 't', withArg: 's' });
-  const rows = []; eachInput(ctx, rest, (t) => rows.push(...lines(t).map((l) => (opts.s ? l.split(opts.s) : l.trim().split(/\s+/)))));
-  if (!opts.t) { rows.forEach((r) => ctx.out(r.join(' ') + '\n')); return; }
-  const w = []; rows.forEach((r) => r.forEach((c, i) => { w[i] = Math.max(w[i] || 0, c.length); }));
-  rows.forEach((r) => ctx.out(r.map((c, i) => (i === r.length - 1 ? c : c.padEnd(w[i] + 2))).join('') + '\n'));
-});
-def('seq', (ctx) => { const a = ctx.args.map(Number); const [s, st, e] = a.length === 1 ? [1, 1, a[0]] : a.length === 2 ? [a[0], 1, a[1]] : a; for (let i = s; st > 0 ? i <= e : i >= e; i += st) ctx.out(i + '\n'); });
-def('expr', (ctx) => { const a = ctx.args; let r; if (a.length === 3 && /^[+\-*/%]$/.test(a[1]) || a[1] === '\\*') { const [x, op, y] = [Number(a[0]), a[1].replace('\\', ''), Number(a[2])]; r = { '+': x + y, '-': x - y, '*': x * y, '/': Math.trunc(x / y), '%': x % y }[op]; } else r = a.join(' '); ctx.out(r + '\n'); return r === 0 || r === '' ? 1 : 0; });
-def('yes', (ctx) => { const s = ctx.args.join(' ') || 'y'; for (let i = 0; i < 20; i++) ctx.out(s + '\n'); });
-def('diff', (ctx) => {
-  const [a, b] = ctx.args.filter((x) => !x.startsWith('-'));
-  const x = lines(ctx.fs.readFile(ctx.abs(a))); const y = lines(ctx.fs.readFile(ctx.abs(b)));
-  if (x.join('\n') === y.join('\n')) return 0;
-  x.forEach((l, i) => { if (y[i] !== l) ctx.out(`${i + 1}c${i + 1}\n< ${l}\n---\n> ${y[i] ?? ''}\n`); });
-  return 1;
+cmd('tr', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 'dsc' });
+  if (err) return usageError(ctx, err);
+  if (!rest.length) { ctx.err("tr: missing operand\nTry 'tr --help' for more information.\n"); return 1; }
+  let set1 = expandSet(rest[0]); const set2 = rest[1] != null ? expandSet(rest[1]) : '';
+  let text = await ctx.stdinText();
+  if (o.c) { const keep = set1; text = [...text].map((ch) => (keep.includes(ch) ? ch : (o.d ? '' : set2.slice(-1) || ch))).join(''); }
+  else if (o.d) text = [...text].filter((ch) => !set1.includes(ch)).join('');
+  else if (set2) text = [...text].map((ch) => { const i = set1.indexOf(ch); return i < 0 ? ch : set2[Math.min(i, set2.length - 1)]; }).join('');
+  if (o.s) { const sq = set2 || set1; text = text.replace(new RegExp(`([${escapeRe(sq)}])\\1+`, 'g'), '$1'); }
+  ctx.out(text);
+  return 0;
 });
 
-// ------------------------------------------------------------------ xargs
-def('xargs', async (ctx) => {
-  const { opts, rest } = getopt(ctx, ctx.args, { flags: '0rtp', withArg: 'nIiLd', stopAtOperand: true });
-  const items = opts[0] ? ctx.stdin.split('\0').filter(Boolean) : ctx.stdin.split(/\s+/).filter(Boolean);
-  const cmd = rest.length ? rest : ['echo'];
-  if (!items.length && opts.r) return 0;
-  const run = (argv) => ctx.exec(argv, { out: { write: ctx.out }, err: { write: ctx.err } });
-  let code = 0;
-  if (opts.I || opts.i) { const ph = opts.I || '{}'; for (const it of items) code = (await run(cmd.map((c) => c.split(ph).join(it)))) || code; return code; }
-  const n = opts.n ? Number(opts.n) : items.length || 1;
-  for (let i = 0; i < Math.max(items.length, 1); i += n) code = (await run([...cmd, ...items.slice(i, i + n)])) || code;
-  return code;
-});
-
-// ------------------------------------------------------------------ sed
-function parseSed(script, ere) {
-  const cmds = []; let i = 0; const n = script.length;
-  const readUntil = (delim) => { let s = ''; while (i < n && script[i] !== delim) { if (script[i] === '\\' && i + 1 < n) { s += script[i] === '\\' && script[i + 1] === delim ? delim : script[i] + script[i + 1]; i += 2; } else s += script[i++]; } i++; return s; };
-  while (i < n) {
-    while (i < n && /[\s;]/.test(script[i])) i++;
-    if (i >= n) break;
+// ---------------------------------------------------------------- sed
+function parseSed(script) {
+  const cmds = []; let i = 0;
+  const n = script.length;
+  const skip = () => { while (i < n && /[\s;]/.test(script[i])) i++; };
+  const readDelim = (d) => { let s = ''; while (i < n && script[i] !== d) { if (script[i] === '\\' && i + 1 < n) { if (script[i + 1] === d) { s += d; i += 2; continue; } s += script[i] + script[i + 1]; i += 2; continue; } s += script[i++]; } i++; return s; };
+  for (skip(); i < n; skip()) {
     const c = { a1: null, a2: null, neg: false };
     const addr = () => {
       if (script[i] === '$') { i++; return { last: true }; }
-      if (/\d/.test(script[i])) { let s = ''; while (/\d/.test(script[i])) s += script[i++]; return { line: Number(s) }; }
-      if (script[i] === '/') { i++; const re = readUntil('/'); let fl = ''; if (script[i] === 'I') { fl = 'i'; i++; } return { re: new RegExp(toJsRegex(re, { ere }), fl) }; }
+      const m = /^\d+/.exec(script.slice(i)); if (m) { i += m[0].length; return { line: Number(m[0]) }; }
+      if (script[i] === '/') { i++; const re = readDelim('/'); return { re }; }
       return null;
     };
     c.a1 = addr();
@@ -201,184 +335,367 @@ function parseSed(script, ere) {
     if (script[i] === '!') { c.neg = true; i++; }
     c.cmd = script[i++];
     if (c.cmd === 's') {
-      const d = script[i++]; const pat = readUntil(d); const rep = readUntil(d); let flags = '';
-      while (i < n && /[gpiIe0-9]/.test(script[i])) flags += script[i++];
-      c.re = new RegExp(toJsRegex(pat, { ere }), (flags.includes('g') ? 'g' : '') + (/[iI]/.test(flags) ? 'i' : ''));
-      c.rep = rep; c.p = flags.includes('p'); c.nth = Number((/\d+/.exec(flags) || [0])[0]);
-    } else if (c.cmd === 'y') { const d = script[i++]; const a = readUntil(d); const b = readUntil(d); c.map = new Map([...a].map((ch, k) => [ch, b[k]])); }
-    else if (['a', 'i', 'c'].includes(c.cmd)) { if (script[i] === '\\') i++; while (script[i] === ' ') i++; let t = ''; while (i < n && script[i] !== '\n') t += script[i++]; c.text = t; }
+      const d = script[i++]; const re = readDelim(d); const rep = readDelim(d);
+      let fl = ''; while (i < n && /[gpiI0-9]/.test(script[i])) fl += script[i++];
+      Object.assign(c, { re, rep, g: fl.includes('g'), p: fl.includes('p'), icase: /[iI]/.test(fl), nth: Number((/\d+/.exec(fl) || [0])[0]) });
+    } else if (c.cmd === 'y') { const d = script[i++]; c.from = readDelim(d); c.to = readDelim(d); }
+    else if ('aic'.includes(c.cmd)) { while (script[i] === '\\' || script[i] === ' ') i++; let t = ''; while (i < n && script[i] !== '\n') t += script[i++]; c.text = t; }
     cmds.push(c);
   }
   return cmds;
 }
-function runSed(text, cmds, { quiet }) {
-  const ls = text.split('\n'); const trailing = ls[ls.length - 1] === ''; if (trailing) ls.pop();
-  const out = []; const active = new Map();
-  for (let ln = 0; ln < ls.length; ln++) {
-    let line = ls[ln]; let deleted = false; let quit = false;
-    const matchAddr = (a) => a.last ? ln === ls.length - 1 : a.line ? ln + 1 === a.line : a.re.test(line);
-    for (const [ci, c] of cmds.entries()) {
-      let sel = true;
+function sedRun(text, cmds, { n: quiet, ere }) {
+  const ls = lines(text); const out = [];
+  const compiled = cmds.map((c) => ({ ...c, rx: c.re != null && c.cmd === 's' ? posixRegex(c.re, { ere, icase: c.icase, flags: c.g ? 'g' : '' }) : null, ax1: c.a1?.re != null ? posixRegex(c.a1.re, { ere }) : null, ax2: c.a2?.re != null ? posixRegex(c.a2.re, { ere }) : null, active: false }));
+  for (let idx = 0; idx < ls.length; idx++) {
+    let line = ls[idx]; let deleted = false; const ln = idx + 1; const last = idx === ls.length - 1; let quit = false;
+    const pre = [];
+    for (const c of compiled) {
+      let m = true;
       if (c.a1) {
-        if (c.a2) {
-          if (active.get(ci)) { sel = true; if (matchAddr(c.a2) && !c.a2.line) active.delete(ci); else if (c.a2.line && ln + 1 >= c.a2.line) active.delete(ci); else if (c.a2.last && ln === ls.length - 1) active.delete(ci); }
-          else if (matchAddr(c.a1)) { sel = true; if (!(c.a2.line && ln + 1 >= c.a2.line)) active.set(ci, true); } else sel = false;
-        } else sel = matchAddr(c.a1);
+        const hit = (a, rx) => (a.line != null ? a.line === ln : a.last ? last : rx.test(line));
+        if (!c.a2) m = hit(c.a1, c.ax1);
+        else if (c.active) { m = true; if (hit(c.a2, c.ax2) || (c.a2.line != null && ln >= c.a2.line)) c.active = false; }
+        else if (hit(c.a1, c.ax1)) { m = true; if (!(c.a2.line != null && c.a2.line <= ln)) c.active = true; } else m = false;
       }
-      if (c.neg) sel = !sel;
-      if (!sel) continue;
-      switch (c.cmd) {
-        case 's': {
-          let k = 0;
-          const rx = c.re.global ? c.re : new RegExp(c.re.source, c.re.flags + (c.nth ? 'g' : ''));
-          const repl = (m, ...g) => { k++; if (c.nth && k !== c.nth && !c.re.global) return m; return c.rep.replace(/\\(\d)|&|\\n|\\t|\\(.)/g, (x, d, e) => (d !== undefined ? g[Number(d) - 1] ?? '' : x === '&' ? m : x === '\\n' ? '\n' : x === '\\t' ? '\t' : e)); };
-          const before = line; line = line.replace(rx, repl);
-          if (c.p && before !== line) out.push(line);
-          break;
-        }
-        case 'd': deleted = true; break;
-        case 'p': out.push(line); break;
-        case 'q': quit = true; break;
-        case 'y': line = [...line].map((ch) => c.map.get(ch) ?? ch).join(''); break;
-        case 'a': out.push(null); c.after = c.text; break;
-        case 'i': out.push(c.text); break;
-        case 'c': line = c.text; break;
-        default: break;
-      }
-      if (deleted) break;
+      if (c.neg) m = !m;
+      if (!m) continue;
+      if (c.cmd === 's') {
+        if (!c.rx) continue;
+        let count = 0;
+        const repl = (full, ...g) => { count++; if (c.nth && count !== c.nth) return full; const groups = g.slice(0, -2).filter((x) => typeof x !== 'object'); return c.rep.replace(/\\(\d)|&|\\&|\\n|\\t|\\(.)/g, (mm, d, ch) => (d ? groups[Number(d) - 1] ?? '' : mm === '&' ? full : mm === '\\&' ? '&' : mm === '\\n' ? '\n' : mm === '\\t' ? '\t' : ch ?? mm)); };
+        const nl = line.replace(c.rx, repl);
+        if (nl !== line) { line = nl; if (c.p) out.push(line); }
+      } else if (c.cmd === 'd') { deleted = true; break; }
+      else if (c.cmd === 'p') out.push(line);
+      else if (c.cmd === 'q') { quit = true; break; }
+      else if (c.cmd === 'y') line = [...line].map((ch) => { const k = c.from.indexOf(ch); return k < 0 ? ch : c.to[k] ?? ch; }).join('');
+      else if (c.cmd === 'a') pre.push({ after: c.text });
+      else if (c.cmd === 'i') out.push(c.text);
+      else if (c.cmd === 'c') { out.push(c.text); deleted = true; break; }
     }
     if (!deleted && !quiet) out.push(line);
-    for (const c of cmds) if (c.cmd === 'a' && c.after !== undefined) { out.push(c.after); c.after = undefined; }
+    for (const p of pre) out.push(p.after);
     if (quit) break;
   }
-  return out.filter((x) => x !== null).map((l) => l + '\n').join('');
+  return out.length ? out.join('\n') + '\n' : '';
 }
-def('sed', (ctx) => {
-  const { opts, all, rest } = getopt(ctx, ctx.args, { flags: 'nEriszu', withArg: 'efl', long: { quiet: 'n', silent: 'n', 'regexp-extended': 'E', 'in-place': 'i', expression: ['e', true] } });
-  const scripts = [...(all.e || [])]; const files = [...rest];
-  if (!scripts.length) { if (!files.length) throw new CmdError("Usage: sed [OPTION]... {script-only-if-no-other-script} [input-file]...", 1); scripts.push(files.shift()); }
-  let cmds; try { cmds = parseSed(scripts.join('\n'), opts.E || opts.r); } catch { throw new CmdError('sed: -e expression #1, char 0: invalid command', 1); }
-  if (opts.i) {
-    let code = 0;
-    for (const f of files) { try { const p = ctx.abs(f); const t = ctx.fs.readFile(p); ctx.fs.writeFile(p, runSed(t, cmds, { quiet: !!opts.n }), {}); } catch (e) { if (e instanceof FsError) { ctx.err(`sed: ${e.code === 'ENOENT' ? `can't read ${f}: No such file or directory` : `couldn't open temporary file ${posix.dirname(ctx.abs(f))}/sedXXXXXX: ${e.text}`}\n`); code = 4; } else throw e; } }
-    return code;
+cmd('sed', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 'nEruzs', val: 'ief', long: { quiet: 'n', silent: 'n', 'regexp-extended': 'E', expression: { key: 'e', val: true }, 'in-place': { key: 'i', val: true, optional: true }, file: { key: 'f', val: true } } });
+  if (err) return usageError(ctx, err);
+  // -i takes an optional suffix glued on; parseOpts treats it as value-taking, so give it back if it swallowed the script
+  let script = o.e; const files = [...rest];
+  let inplace = o.i != null; let suffix = typeof o.i === 'string' && !(o.i.includes('s') && o.i.length > 2 && !o.e) ? o.i : '';
+  if (inplace && typeof o.i === 'string' && /^s.|^\d|^\//.test(o.i) && script == null) { script = o.i; suffix = ''; }
+  if (o.f) { const r = readInput(ctx, o.f); if (r.error) return ctx.fail(`couldn't open file ${o.f}: ${r.error}`, 1); script = r.text; }
+  if (script == null) { if (!files.length) { ctx.err('Usage: sed [OPTION]... {script-only-if-no-other-script} [input-file]...\n'); return 1; } script = files.shift(); }
+  let cmds;
+  try { cmds = parseSed(script); } catch { ctx.err(`sed: -e expression #1, char 0: unknown command\n`); return 1; }
+  for (const c of cmds) if (!'sdpqyaic'.includes(c.cmd)) { ctx.err(`sed: -e expression #1, char ${script.indexOf(c.cmd) + 1}: unknown command: \`${c.cmd}'\n`); return 1; }
+  const opts = { n: !!o.n, ere: !!(o.E || o.r) };
+  if (!files.length) { ctx.out(sedRun(await ctx.stdinText(), cmds, opts)); return 0; }
+  let rc = 0;
+  for (const f of files) {
+    const r = readInput(ctx, f);
+    if (r.error) { ctx.err(`sed: ${inplace ? "couldn't edit" : "can't read"} ${f}: ${r.error}\n`); rc = 4; continue; }
+    const res = sedRun(r.text, cmds, opts);
+    if (inplace) {
+      try { if (suffix) ctx.fs.writeFile(ctx.resolve(f) + suffix, r.text); ctx.fs.writeFile(ctx.resolve(f), res); } catch (e) { if (e instanceof FsError) { ctx.err(`sed: couldn't open temporary file ${posix.dirname(ctx.resolve(f))}/sedXXXXXX: ${e.text}\n`); rc = 4; } else throw e; }
+    } else ctx.out(res);
   }
-  return eachInput(ctx, files, (t) => ctx.out(runSed(t, cmds, { quiet: !!opts.n })));
-});
+  return rc;
+}, { usage: 'sed [OPTION]... {script-only-if-no-other-script} [input-file]...' });
 
-// ------------------------------------------------------------------ awk (practical subset)
+// ---------------------------------------------------------------- awk (a useful subset)
 function awkTokens(src) {
-  const toks = []; let i = 0;
-  while (i < src.length) {
+  const toks = []; let i = 0; const n = src.length;
+  const prevOperand = () => { const t = toks[toks.length - 1]; return t && (t.t === 'num' || t.t === 'str' || t.t === 'id' || t.v === ')' || t.v === ']' || t.v === '$' && false || t.t === 'fn'); };
+  while (i < n) {
     const c = src[i];
-    if (/\s/.test(c)) { i++; continue; }
-    if (c === '"') { let s = ''; i++; while (i < src.length && src[i] !== '"') { if (src[i] === '\\') { s += unescape(src.slice(i, i + 2)); i += 2; } else s += src[i++]; } i++; toks.push({ t: 'str', v: s }); continue; }
-    if (c === '/' && (!toks.length || ['op', 'punct'].includes(toks[toks.length - 1].t) && !/^[)\]]$/.test(toks[toks.length - 1].v))) { let s = ''; i++; while (i < src.length && src[i] !== '/') { if (src[i] === '\\' && src[i + 1] === '/') { s += '/'; i += 2; } else s += src[i++]; } i++; toks.push({ t: 're', v: s }); continue; }
-    const num = /^\d+(\.\d+)?/.exec(src.slice(i)); if (num) { toks.push({ t: 'num', v: Number(num[0]) }); i += num[0].length; continue; }
-    const id = /^[A-Za-z_]\w*/.exec(src.slice(i)); if (id) { toks.push({ t: 'id', v: id[0] }); i += id[0].length; continue; }
-    const op = ['&&', '||', '==', '!=', '<=', '>=', '!~', '+=', '-=', '*=', '/=', '++', '--', '>>'].find((o) => src.startsWith(o, i));
-    if (op) { toks.push({ t: 'op', v: op }); i += op.length; continue; }
-    toks.push({ t: /[{}();,\[\]]/.test(c) ? 'punct' : 'op', v: c }); i++;
+    if (c === ' ' || c === '\t' || c === '\r') { i++; continue; }
+    if (c === '\\' && src[i + 1] === '\n') { i += 2; continue; }
+    if (c === '#') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '\n') { toks.push({ t: 'op', v: ';', nl: true }); i++; continue; }
+    if (/[0-9.]/.test(c) && !(c === '.' && !/[0-9]/.test(src[i + 1] || ''))) { const m = /^(\d+\.?\d*([eE][-+]?\d+)?|\.\d+)/.exec(src.slice(i)); toks.push({ t: 'num', v: Number(m[0]) }); i += m[0].length; continue; }
+    if (c === '"') { let s = ''; i++; while (i < n && src[i] !== '"') { if (src[i] === '\\') { i++; const e = src[i]; s += e === 'n' ? '\n' : e === 't' ? '\t' : e === '"' ? '"' : e === '\\' ? '\\' : e === '/' ? '/' : '\\' + e; i++; } else s += src[i++]; } i++; toks.push({ t: 'str', v: s }); continue; }
+    if (c === '/' && !prevOperand()) { let s = ''; i++; while (i < n && src[i] !== '/') { if (src[i] === '\\' && src[i + 1] === '/') { s += '/'; i += 2; } else s += src[i++]; } i++; toks.push({ t: 're', v: s }); continue; }
+    if (/[A-Za-z_]/.test(c)) { const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(src.slice(i)); i += m[0].length; toks.push({ t: src[i] === '(' && !['if', 'while', 'for'].includes(m[0]) ? 'fn' : 'id', v: m[0] }); continue; }
+    const three = src.slice(i, i + 3); const two = src.slice(i, i + 2);
+    if (['**='].includes(three)) { toks.push({ t: 'op', v: three }); i += 3; continue; }
+    if (['&&', '||', '==', '!=', '<=', '>=', '+=', '-=', '*=', '/=', '%=', '^=', '++', '--', '!~', '**'].includes(two)) { toks.push({ t: 'op', v: two }); i += 2; continue; }
+    toks.push({ t: 'op', v: c }); i++;
   }
   return toks;
 }
-function compileAwk(src) {
+
+function awkParse(src) {
   const toks = awkTokens(src); let p = 0;
-  const peek = () => toks[p]; const eat = (v) => { if (toks[p] && toks[p].v === v) { p++; return true; } return false; };
-  const expr = (minPrec = 0) => {
-    let left = unary();
-    for (;;) {
-      const t = peek(); if (!t) break;
-      const bin = { '||': 1, '&&': 2, '~': 3, '!~': 3, '==': 4, '!=': 4, '<': 4, '<=': 4, '>': 4, '>=': 4, '+': 6, '-': 6, '*': 7, '/': 7, '%': 7 };
-      if ((t.t === 'op') && bin[t.v] !== undefined && bin[t.v] >= minPrec && !(t.v === '>' && minPrec < 0)) {
-        p++; const right = expr(bin[t.v] + 1); const l = left;
-        left = ({ '||': (e) => truthy(l(e)) || truthy(right(e)), '&&': (e) => truthy(l(e)) && truthy(right(e)), '~': (e) => new RegExp(String(right(e))).test(String(l(e))), '!~': (e) => !new RegExp(String(right(e))).test(String(l(e))), '==': (e) => cmpv(l(e), right(e)) === 0, '!=': (e) => cmpv(l(e), right(e)) !== 0, '<': (e) => cmpv(l(e), right(e)) < 0, '<=': (e) => cmpv(l(e), right(e)) <= 0, '>': (e) => cmpv(l(e), right(e)) > 0, '>=': (e) => cmpv(l(e), right(e)) >= 0, '+': (e) => num(l(e)) + num(right(e)), '-': (e) => num(l(e)) - num(right(e)), '*': (e) => num(l(e)) * num(right(e)), '/': (e) => num(l(e)) / num(right(e)), '%': (e) => num(l(e)) % num(right(e)) })[t.v];
-        continue;
-      }
-      // implicit concatenation
-      if (minPrec <= 5 && (t.t === 'str' || t.t === 'num' || t.t === 'id' || (t.t === 'op' && t.v === '$') || (t.t === 'punct' && t.v === '('))) { const right = expr(6); const l = left; left = (e) => String(str(l(e))) + String(str(right(e))); continue; }
-      break;
-    }
-    return left;
-  };
-  const truthy = (v) => (typeof v === 'number' ? v !== 0 : typeof v === 'boolean' ? v : v !== '' && v !== undefined);
-  const num = (v) => (typeof v === 'number' ? v : typeof v === 'boolean' ? Number(v) : parseFloat(v) || 0);
-  const str = (v) => (typeof v === 'boolean' ? (v ? '1' : '0') : v === undefined ? '' : v);
-  const cmpv = (a, b) => { const na = typeof a === 'number' || (a !== '' && !isNaN(a)); const nb = typeof b === 'number' || (b !== '' && !isNaN(b)); if (na && nb) return num(a) - num(b); const x = String(str(a)); const y = String(str(b)); return x < y ? -1 : x > y ? 1 : 0; };
-  const unary = () => {
-    const t = toks[p++];
-    if (!t) return () => '';
-    if (t.t === 'num') return () => t.v;
-    if (t.t === 'str') return () => t.v;
-    if (t.t === 're') return (e) => new RegExp(t.v).test(e.line);
-    if (t.t === 'op' && t.v === '!') { const x = unary(); return (e) => !truthy(x(e)); }
-    if (t.t === 'op' && t.v === '-') { const x = unary(); return (e) => -num(x(e)); }
-    if (t.t === 'op' && t.v === '$') { const x = unary(); return (e) => e.field(num(x(e))); }
-    if (t.t === 'punct' && t.v === '(') { const x = expr(); eat(')'); return x; }
-    if (t.t === 'id') {
-      if (peek() && peek().v === '(' && ['length', 'substr', 'tolower', 'toupper', 'index', 'sprintf', 'int', 'split', 'sqrt'].includes(t.v)) {
-        p++; const args = []; if (!eat(')')) { do args.push(expr()); while (eat(',')); eat(')'); }
-        return (e) => { const a = args.map((f) => f(e)); switch (t.v) { case 'length': return args.length ? String(str(a[0])).length : e.line.length; case 'substr': return String(str(a[0])).substr(num(a[1]) - 1, a[2] === undefined ? undefined : num(a[2])); case 'tolower': return String(str(a[0])).toLowerCase(); case 'toupper': return String(str(a[0])).toUpperCase(); case 'index': return String(str(a[0])).indexOf(String(str(a[1]))) + 1; case 'int': return Math.trunc(num(a[0])); case 'sqrt': return Math.sqrt(num(a[0])); case 'sprintf': return fmt(a); default: return 0; } };
-      }
-      if (peek() && (peek().v === '++' || peek().v === '--')) { const o = toks[p++].v; return (e) => { const v = num(e.vars[t.v]); e.vars[t.v] = o === '++' ? v + 1 : v - 1; return v; }; }
-      if (peek() && peek().v === '[') { p++; const k = expr(); eat(']'); return (e) => (e.vars[t.v] || {})[str(k(e))] ?? ''; }
-      return (e) => (t.v === 'NR' ? e.nr : t.v === 'NF' ? e.nf : e.vars[t.v] ?? '');
-    }
-    return () => '';
-  };
-  const fmt = (a) => { let i = 1; return String(a[0]).replace(/%(-?)(\d*)(?:\.(\d+))?([sdif%c])/g, (m, l, w, pr, t) => { if (t === '%') return '%'; let v = a[i++]; v = t === 'd' || t === 'i' ? String(Math.trunc(num(v))) : t === 'f' ? num(v).toFixed(pr === undefined ? 6 : Number(pr)) : String(str(v)); return l ? v.padEnd(Number(w || 0)) : v.padStart(Number(w || 0)); }); };
-  const stmt = () => {
+  const peek = () => toks[p]; const next = () => toks[p++];
+  const isOp = (v) => peek() && peek().t === 'op' && peek().v === v;
+  const eat = (v) => { if (!isOp(v)) throw new Error(`syntax error at source line 1: expected ${v}`); p++; };
+  const skipNl = () => { while (isOp(';')) p++; };
+  const prog = { begin: [], end: [], rules: [] };
+  function block() { eat('{'); const st = []; skipNl(); while (!isOp('}')) { st.push(stmt()); skipNl(); } eat('}'); return { k: 'block', st }; }
+  function simpleOrBlock() { skipNl(); return isOp('{') ? block() : stmt(); }
+  function stmt() {
     const t = peek();
-    if (t.t === 'punct' && t.v === '{') { p++; const body = block(); return body; }
-    if (t.t === 'id' && (t.v === 'print' || t.v === 'printf')) {
-      p++; const args = [];
-      if (peek() && !(peek().t === 'punct' && (peek().v === ';' || peek().v === '}'))) { do { args.push(expr(5)); } while (eat(',')); }
-      let redir = null; if (peek() && peek().v === '>') { p++; redir = expr(5); }
-      return (e) => { const a = args.map((f) => f(e)); const s = t.v === 'printf' ? fmt(a) : (a.length ? a.map((x) => String(str(x))).join(e.vars.OFS ?? ' ') : e.line) + '\n'; e.write(s, redir ? redir(e) : null); };
+    if (isOp('{')) return block();
+    if (t.t === 'id') {
+      if (t.v === 'if') { next(); eat('('); const c = expr(); eat(')'); const a = simpleOrBlock(); let b = null; const save = p; skipNl(); if (peek() && peek().t === 'id' && peek().v === 'else') { next(); b = simpleOrBlock(); } else p = save; return { k: 'if', c, a, b }; }
+      if (t.v === 'while') { next(); eat('('); const c = expr(); eat(')'); return { k: 'while', c, body: simpleOrBlock() }; }
+      if (t.v === 'for') {
+        next(); eat('(');
+        if (peek().t === 'id' && toks[p + 1] && toks[p + 1].v === 'in') { const v = next().v; next(); const arr = next().v; eat(')'); return { k: 'forin', v, arr, body: simpleOrBlock() }; }
+        const init = isOp(';') ? null : expr(); eat(';'); const c = isOp(';') ? null : expr(); eat(';'); const inc = isOp(')') ? null : expr(); eat(')');
+        return { k: 'for', init, c, inc, body: simpleOrBlock() };
+      }
+      if (t.v === 'print' || t.v === 'printf') {
+        next(); const args = [];
+        const paren = isOp('(') && (() => { let d = 0; for (let j = p; j < toks.length; j++) { if (toks[j].v === '(' && toks[j].t === 'op') d++; if (toks[j].v === ')' && toks[j].t === 'op') { d--; if (!d) return toks[j + 1] === undefined || (toks[j + 1].t === 'op' && [';', '}', '>', '|'].includes(toks[j + 1].v)); } } return false; })();
+        if (paren) { next(); while (!isOp(')')) { args.push(expr()); if (isOp(',')) next(); } next(); }
+        else while (peek() && !isOp(';') && !isOp('}') && !isOp('>') && !isOp('|')) { args.push(expr(true)); if (isOp(',')) next(); else break; }
+        let redir = null; if (isOp('>')) { next(); redir = expr(true); }
+        return { k: t.v, args, redir };
+      }
+      if (t.v === 'next') { next(); return { k: 'next' }; }
+      if (t.v === 'exit') { next(); const e = peek() && !isOp(';') && !isOp('}') ? expr() : null; return { k: 'exit', e }; }
+      if (t.v === 'delete') { next(); const name = next().v; let idx = null; if (isOp('[')) { next(); idx = [expr()]; while (isOp(',')) { next(); idx.push(expr()); } eat(']'); } return { k: 'delete', name, idx }; }
     }
-    if (t.t === 'id' && t.v === 'if') { p++; eat('('); const c = expr(); eat(')'); const a = stmt(); eat(';'); let b = null; if (peek() && peek().v === 'else') { p++; b = stmt(); } return (e) => (truthy(c(e)) ? a(e) : b && b(e)); }
-    if (t.t === 'id' && t.v === 'next') { p++; return (e) => { e.next = true; }; }
-    if (t.t === 'id' && t.v === 'exit') { p++; return (e) => { e.exit = true; }; }
-    // assignment / increment
-    if (t.t === 'id' && toks[p + 1] && ['=', '+=', '-=', '*=', '/=', '++', '--'].includes(toks[p + 1].v) ) {
-      p += 2; const name = t.v; const op = toks[p - 1].v;
-      if (op === '++' || op === '--') return (e) => { e.vars[name] = num(e.vars[name]) + (op === '++' ? 1 : -1); };
-      const r = expr(); return (e) => { const v = r(e); e.vars[name] = op === '=' ? v : op === '+=' ? num(e.vars[name]) + num(v) : op === '-=' ? num(e.vars[name]) - num(v) : op === '*=' ? num(e.vars[name]) * num(v) : num(e.vars[name]) / num(v); };
-    }
-    if (t.t === 'id' && toks[p + 1] && toks[p + 1].v === '[') { p += 2; const k = expr(); eat(']'); const op = toks[p++].v; const r = op === '++' ? () => 1 : expr(); const name = t.v; return (e) => { const m = (e.vars[name] ||= {}); const key = str(k(e)); m[key] = op === '=' ? r(e) : num(m[key]) + num(r(e)); }; }
-    if (t.t === 'id' && t.v === 'for') { /* for (k in arr) */ p++; eat('('); const v = toks[p++].v; p++; const arr = toks[p++].v; eat(')'); const body = stmt(); return (e) => { for (const k of Object.keys(e.vars[arr] || {})) { e.vars[v] = k; body(e); } }; }
-    const x = expr(); return (e) => { x(e); };
-  };
-  const block = () => { const ss = []; while (p < toks.length && !(peek().v === '}')) { if (eat(';')) continue; ss.push(stmt()); } eat('}'); return (e) => { for (const s of ss) { s(e); if (e.next || e.exit) break; } }; };
-  const rules = [];
-  while (p < toks.length) {
-    if (eat(';')) continue;
-    let kind = 'main'; let pat = null;
-    if (peek().t === 'id' && (peek().v === 'BEGIN' || peek().v === 'END')) kind = toks[p++].v.toLowerCase();
-    else if (!(peek().t === 'punct' && peek().v === '{')) { const first = expr(); if (peek() && peek().v === ',') { p++; const second = expr(); let on = false; pat = (e) => { if (!on && truthy(first(e))) { on = true; } if (on) { if (truthy(second(e))) on = false; return true; } return false; }; } else pat = first; }
-    let action = null;
-    if (peek() && peek().v === '{') { p++; action = block(); }
-    rules.push({ kind, pat, action });
+    return { k: 'expr', e: expr() };
   }
-  return { rules, fmt };
-}
-def(['awk', 'mawk', 'gawk'], (ctx) => {
-  const { opts, all, rest } = getopt(ctx, ctx.args, { withArg: 'Fvf', flags: '', long: { 'field-separator': ['F', true] } });
-  const prog = rest.shift(); if (prog === undefined) throw new CmdError('usage: awk [-F value] [-v var=value] [prog | -f progfile] [file ...]', 2);
-  let compiled; try { compiled = compileAwk(prog); } catch { throw new CmdError(`awk: syntax error in program`, 2); }
-  const vars = { OFS: ' ' }; for (const v of all.v || []) { const [k, ...val] = v.split('='); vars[k] = val.join('='); }
-  let fs = opts.F ?? ' '; if (fs === 't') fs = '\t'; if (opts.F !== undefined) vars.FS = fs;
-  const sepRe = fs === ' ' ? /\s+/ : fs.length === 1 ? new RegExp(fs.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : new RegExp(fs);
-  let nr = 0; let line = ''; let fields = [];
-  const e = { vars, get nr() { return nr; }, get nf() { return fields.length; }, get line() { return line; }, field: (n) => (n === 0 ? line : fields[n - 1] ?? ''), write: (s, to) => { if (to) { try { ctx.fs.writeFile(ctx.abs(String(to)), s, { append: true }); } catch { /* ignore */ } } else ctx.out(s); }, next: false, exit: false };
-  const set = (l) => { line = l; fields = (fs === ' ' ? l.trim() : l) === '' ? [] : (fs === ' ' ? l.trim() : l).split(sepRe); };
-  for (const r of compiled.rules) if (r.kind === 'begin') r.action?.(e);
-  const code = eachInput(ctx, rest, (t) => {
-    for (const l of lines(t)) {
-      if (e.exit) return; nr++; set(l); e.next = false;
-      for (const r of compiled.rules) { if (r.kind !== 'main') continue; if (!r.pat || (typeof r.pat(e) !== 'number' ? r.pat(e) : r.pat(e) !== 0)) { if (r.action) r.action(e); else ctx.out(line + '\n'); } if (e.next || e.exit) break; }
+  const ASSIGN = ['=', '+=', '-=', '*=', '/=', '%=', '^='];
+  function expr(noGt) { return assign(noGt); }
+  function assign(noGt) {
+    const l = ternary(noGt);
+    if (peek() && peek().t === 'op' && ASSIGN.includes(peek().v) && (l.k === 'var' || l.k === 'idx' || l.k === 'field')) { const op = next().v; return { k: 'assign', op, l, r: assign(noGt) }; }
+    return l;
+  }
+  function ternary(noGt) { const c = or(noGt); if (isOp('?')) { next(); const a = assign(noGt); eat(':'); const b = assign(noGt); return { k: 'tern', c, a, b }; } return c; }
+  function or(g) { let l = and(g); while (isOp('||')) { next(); l = { k: 'or', l, r: and(g) }; } return l; }
+  function and(g) { let l = inop(g); while (isOp('&&')) { next(); l = { k: 'and', l, r: inop(g) }; } return l; }
+  function inop(g) { let l = match(g); while (peek() && peek().t === 'id' && peek().v === 'in') { next(); l = { k: 'in', l, arr: next().v }; } return l; }
+  function match(g) { let l = cmp(g); while (isOp('~') || isOp('!~')) { const neg = next().v === '!~'; l = { k: 'match', l, r: cmp(g), neg }; } return l; }
+  function cmp(g) { let l = concat(g); while (peek() && peek().t === 'op' && ['<', '<=', '==', '!=', '>=', '>'].includes(peek().v) && !(g && peek().v === '>')) { const op = next().v; l = { k: 'cmp', op, l, r: concat(g) }; } return l; }
+  function startsOperand() { const t = peek(); if (!t) return false; if (t.t === 'num' || t.t === 'str' || t.t === 're' || t.t === 'fn') return true; if (t.t === 'id') return !['in', 'else'].includes(t.v); return t.t === 'op' && ['$', '(', '!', '-', '+'].includes(t.v) && !(t.v === '-' || t.v === '+') ; }
+  function concat(g) { let l = add(g); while (startsOperand()) l = { k: 'cat', l, r: add(g) }; return l; }
+  function add(g) { let l = mul(g); while (isOp('+') || isOp('-')) { const op = next().v; l = { k: 'bin', op, l, r: mul(g) }; } return l; }
+  function mul(g) { let l = unary(g); while (isOp('*') || isOp('/') || isOp('%')) { const op = next().v; l = { k: 'bin', op, l, r: unary(g) }; } return l; }
+  function unary(g) { if (isOp('!')) { next(); return { k: 'not', e: unary(g) }; } if (isOp('-')) { next(); return { k: 'neg', e: unary(g) }; } if (isOp('+')) { next(); return { k: 'pos', e: unary(g) }; } return pow(g); }
+  function pow(g) { const l = postfix(g); if (isOp('^') || isOp('**')) { next(); return { k: 'bin', op: '^', l, r: unary(g) }; } return l; }
+  function postfix(g) { const e = primary(g); if ((isOp('++') || isOp('--')) && (e.k === 'var' || e.k === 'idx' || e.k === 'field')) { const op = next().v; return { k: 'post', op, e }; } return e; }
+  function primary() {
+    const t = next();
+    if (!t) throw new Error('syntax error: unexpected end');
+    if (t.t === 'num') return { k: 'num', v: t.v };
+    if (t.t === 'str') return { k: 'str', v: t.v };
+    if (t.t === 're') return { k: 're', v: t.v };
+    if (t.t === 'op') {
+      if (t.v === '(') { const e = expr(); eat(')'); return { k: 'group', e }; }
+      if (t.v === '$') { const e = isOp('(') ? primary() : (isOp('++') || isOp('--')) ? primary() : unaryDollar(); return { k: 'field', e }; }
+      if (t.v === '++' || t.v === '--') { const e = primary(); return { k: 'pre', op: t.v, e }; }
     }
-  });
-  for (const r of compiled.rules) if (r.kind === 'end') r.action?.(e);
-  return code;
+    if (t.t === 'fn') { eat('('); const args = []; while (!isOp(')')) { args.push(expr()); if (isOp(',')) next(); } next(); return { k: 'call', name: t.v, args }; }
+    if (t.t === 'id') {
+      if (isOp('[')) { next(); const idx = [expr()]; while (isOp(',')) { next(); idx.push(expr()); } eat(']'); return { k: 'idx', name: t.v, idx }; }
+      return { k: 'var', name: t.v };
+    }
+    throw new Error(`syntax error at source line 1 near ${t.v}`);
+  }
+  function unaryDollar() { const t = peek(); if (t.t === 'num') { next(); return { k: 'num', v: t.v }; } if (t.t === 'id') { next(); return { k: 'var', name: t.v }; } return primary(); }
+
+  skipNl();
+  while (peek()) {
+    const t = peek();
+    if (t.t === 'id' && t.v === 'BEGIN') { next(); prog.begin.push(block()); }
+    else if (t.t === 'id' && t.v === 'END') { next(); prog.end.push(block()); }
+    else if (isOp('{')) prog.rules.push({ pat: null, body: block() });
+    else { const pat = expr(); let body = null; if (isOp('{')) body = block(); prog.rules.push({ pat, body }); }
+    skipNl();
+  }
+  return prog;
+}
+
+const numLike = (s) => typeof s === 'string' && /^\s*[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?\s*$/.test(s);
+const toNum = (v) => (typeof v === 'number' ? v : parseFloat(v) || 0);
+const toStr = (v) => (typeof v === 'number' ? (Number.isInteger(v) ? String(v) : String(Number(v.toPrecision(6)))) : v == null ? '' : String(v));
+
+class AwkExit extends Error {}
+class AwkNext extends Error {}
+
+function awkExec(prog, input, { FS = ' ', vars = {}, out, readFile }) {
+  const G = new Map(Object.entries({ FS, OFS: ' ', ORS: '\n', RS: '\n', NR: 0, NF: 0, FILENAME: '', ...vars }));
+  const arrays = new Map();
+  let fields = ['']; // fields[0] = $0
+  const setRecord = (line) => { fields = [line, ...splitFields(line)]; G.set('NF', fields.length - 1); };
+  const splitFields = (line) => { const fs = G.get('FS'); if (fs === ' ') return line.trim() === '' ? [] : line.trim().split(/\s+/); if (fs === '\t') return line.split('\t'); if (fs.length === 1) return line.split(fs); return line.split(new RegExp(fs)); };
+  const rebuild = () => { fields[0] = fields.slice(1).join(G.get('OFS')); };
+  const arr = (n) => { if (!arrays.has(n)) arrays.set(n, new Map()); return arrays.get(n); };
+  const key = (idx, ev) => idx.map((e) => toStr(ev(e))).join('\u001c');
+  const rx = (v) => (v instanceof RegExp ? v : new RegExp(toStr(v)));
+  let exitCode = null;
+  const ev = (e) => {
+    switch (e.k) {
+      case 'num': return e.v; case 'str': return e.v; case 'group': return ev(e.e);
+      case 're': return new RegExp(e.v).test(fields[0]) ? 1 : 0;
+      case 'var': return G.has(e.name) ? G.get(e.name) : '';
+      case 'idx': return arr(e.name).get(key(e.idx, ev)) ?? '';
+      case 'field': { const i = toNum(ev(e.e)); return fields[i] ?? ''; }
+      case 'assign': {
+        let v = ev(e.r);
+        if (e.op !== '=') { const cur = toNum(ev(e.l)); const r = toNum(v); v = { '+=': cur + r, '-=': cur - r, '*=': cur * r, '/=': cur / r, '%=': cur % r, '^=': cur ** r }[e.op]; }
+        store(e.l, v); return v;
+      }
+      case 'tern': return truthy(ev(e.c)) ? ev(e.a) : ev(e.b);
+      case 'or': return truthy(ev(e.l)) || truthy(ev(e.r)) ? 1 : 0;
+      case 'and': return truthy(ev(e.l)) && truthy(ev(e.r)) ? 1 : 0;
+      case 'not': return truthy(ev(e.e)) ? 0 : 1;
+      case 'neg': return -toNum(ev(e.e)); case 'pos': return toNum(ev(e.e));
+      case 'in': return arr(e.arr).has(toStr(ev(e.l))) ? 1 : 0;
+      case 'match': { const m = rx(e.r.k === 're' ? new RegExp(e.r.v) : ev(e.r)).test(toStr(ev(e.l))); return (e.neg ? !m : m) ? 1 : 0; }
+      case 'cmp': {
+        const a = ev(e.l); const b = ev(e.r);
+        const numeric = (typeof a === 'number' || numLike(a)) && (typeof b === 'number' || numLike(b));
+        const x = numeric ? toNum(a) : toStr(a); const y = numeric ? toNum(b) : toStr(b);
+        return { '<': x < y, '<=': x <= y, '==': x === y, '!=': x !== y, '>=': x >= y, '>': x > y }[e.op] ? 1 : 0;
+      }
+      case 'cat': return toStr(ev(e.l)) + toStr(ev(e.r));
+      case 'bin': { const a = toNum(ev(e.l)); const b = toNum(ev(e.r)); return { '+': a + b, '-': a - b, '*': a * b, '/': b === 0 ? (() => { throw new Error('division by zero'); })() : a / b, '%': a % b, '^': a ** b }[e.op]; }
+      case 'pre': { const v = toNum(ev(e.e)) + (e.op === '++' ? 1 : -1); store(e.e, v); return v; }
+      case 'post': { const old = toNum(ev(e.e)); store(e.e, old + (e.op === '++' ? 1 : -1)); return old; }
+      case 'call': return call(e);
+      default: throw new Error('bad expression ' + e.k);
+    }
+  };
+  const truthy = (v) => (typeof v === 'number' ? v !== 0 : v !== '' && !(numLike(v) && toNum(v) === 0 && false));
+  function store(l, v) {
+    if (l.k === 'var') { G.set(l.name, v); if (l.name === 'NF') { fields = fields.slice(0, toNum(v) + 1); while (fields.length < toNum(v) + 1) fields.push(''); rebuild(); } }
+    else if (l.k === 'idx') arr(l.name).set(key(l.idx, ev), v);
+    else if (l.k === 'field') { const i = toNum(ev(l.e)); if (i === 0) setRecord(toStr(v)); else { while (fields.length <= i) fields.push(''); fields[i] = toStr(v); G.set('NF', fields.length - 1); rebuild(); } }
+  }
+  function call(e) {
+    const a = e.args.map((x) => (x.k === 'var' && ['split'].includes(e.name) ? x : ev(x)));
+    switch (e.name) {
+      case 'length': return e.args.length ? toStr(a[0]).length : fields[0].length;
+      case 'substr': { const s = toStr(a[0]); const st = Math.max(1, Math.round(toNum(a[1]))); return a.length > 2 ? s.substr(st - 1, Math.round(toNum(a[2]))) : s.slice(st - 1); }
+      case 'index': return toStr(a[0]).indexOf(toStr(a[1])) + 1;
+      case 'tolower': return toStr(a[0]).toLowerCase(); case 'toupper': return toStr(a[0]).toUpperCase();
+      case 'int': return Math.trunc(toNum(a[0])); case 'sqrt': return Math.sqrt(toNum(a[0]));
+      case 'sprintf': return formatPrintf(toStr(a[0]), a.slice(1).map(toStr));
+      case 'sub': case 'gsub': { const target = e.args[2] || { k: 'field', e: { k: 'num', v: 0 } }; const s = toStr(ev(target)); const re = e.args[0].k === 're' ? new RegExp(e.args[0].v, e.name === 'gsub' ? 'g' : '') : new RegExp(toStr(a[0]), e.name === 'gsub' ? 'g' : ''); let n = 0; const r = s.replace(re, (m) => { n++; return toStr(a[1]).replace(/\\&/g, '\u0000').replace(/&/g, m).replace(/\u0000/g, '&'); }); store(target, r); return n; }
+      case 'split': { const s = toStr(ev(e.args[0])); const sep = e.args[2] ? toStr(ev(e.args[2])) : G.get('FS'); const parts = sep === ' ' ? s.trim().split(/\s+/).filter(Boolean) : s.split(sep.length === 1 ? sep : new RegExp(sep)); const A = arr(e.args[1].name); A.clear(); parts.forEach((p, i) => A.set(String(i + 1), p)); return parts.length; }
+      case 'match': { const m = new RegExp(toStr(a[1])).exec(toStr(a[0])); G.set('RSTART', m ? m.index + 1 : 0); G.set('RLENGTH', m ? m[0].length : -1); return m ? m.index + 1 : 0; }
+      default: throw new Error(`function ${e.name} never defined`);
+    }
+  }
+  const run = (s) => {
+    switch (s.k) {
+      case 'block': for (const x of s.st) run(x); break;
+      case 'expr': ev(s.e); break;
+      case 'if': if (truthy(ev(s.c))) run(s.a); else if (s.b) run(s.b); break;
+      case 'while': { let g = 0; while (truthy(ev(s.c)) && ++g < 1e6) run(s.body); break; }
+      case 'for': { let g = 0; if (s.init) ev(s.init); while ((!s.c || truthy(ev(s.c))) && ++g < 1e6) { run(s.body); if (s.inc) ev(s.inc); } break; }
+      case 'forin': for (const k of [...arr(s.arr).keys()]) { G.set(s.v, k); run(s.body); } break;
+      case 'print': { const parts = s.args.length ? s.args.map((a) => toStr(ev(a))) : [fields[0]]; out(parts.join(G.get('OFS')) + G.get('ORS')); break; }
+      case 'printf': out(formatPrintf(toStr(ev(s.args[0])), s.args.slice(1).map((a) => toStr(ev(a))))); break;
+      case 'next': throw new AwkNext();
+      case 'exit': exitCode = s.e ? toNum(ev(s.e)) : 0; throw new AwkExit();
+      case 'delete': if (s.idx) arr(s.name).delete(key(s.idx, ev)); else arr(s.name).clear(); break;
+      default: break;
+    }
+  };
+  try { for (const b of prog.begin) run(b); } catch (e) { if (!(e instanceof AwkExit)) throw e; return exitCode ?? 0; }
+  if (prog.rules.length || prog.end.length) {
+    try {
+      for (const { text, name } of input) {
+        G.set('FILENAME', name ?? '');
+        for (const line of lines(text)) {
+          G.set('NR', toNum(G.get('NR')) + 1); setRecord(line);
+          try { for (const r of prog.rules) { if (!r.pat || truthy(ev(r.pat))) { if (r.body) run(r.body); else out(fields[0] + G.get('ORS')); } } } catch (e) { if (!(e instanceof AwkNext)) throw e; }
+        }
+      }
+    } catch (e) { if (!(e instanceof AwkExit)) throw e; }
+  }
+  try { for (const b of prog.end) run(b); } catch (e) { if (!(e instanceof AwkExit)) throw e; }
+  void readFile;
+  return exitCode ?? 0;
+}
+
+cmd(['awk', 'mawk', 'gawk'], async (ctx) => {
+  const args = [...ctx.args]; let FS = ' '; const vars = {}; let src = null;
+  while (args.length && args[0].startsWith('-') && args[0] !== '-') {
+    const a = args.shift();
+    if (a === '--') break;
+    if (a.startsWith('-F')) { FS = a.length > 2 ? a.slice(2) : args.shift(); if (FS === 't') FS = '\t'; }
+    else if (a === '-v') { const [k, ...v] = args.shift().split('='); vars[k] = v.join('='); }
+    else if (a === '-f') { const r = readInput(ctx, args.shift()); src = r.text ?? ''; }
+    else if (a === '--version') { ctx.out('mawk 1.3.4 20200120\n'); return 0; }
+  }
+  if (src == null) src = args.shift();
+  if (src == null) { ctx.err('usage: awk [-F value] [-v var=value] [prog | -f progfile][file ...]\n'); return 2; }
+  let prog;
+  try { prog = awkParse(src); } catch (e) { ctx.err(`awk: ${e.message}\n`); return 2; }
+  const input = [];
+  let rc = 0;
+  if (!args.length) { if (prog.rules.length || prog.end.length) input.push({ text: await ctx.stdinText() }); }
+  for (const f of args) { const r = readInput(ctx, f); if (r.error) { ctx.err(`awk: cannot open ${f} (${r.error})\n`); rc = 2; } else input.push({ text: r.text, name: f }); }
+  try { const st = awkExec(prog, input, { FS, vars, out: (s) => ctx.out(s) }); return rc || st; } catch (e) { ctx.err(`awk: ${e.message}\n`); return 2; }
 });
+
+// ---------------------------------------------------------------- xargs, base64, checksums, small utilities
+cmd('xargs', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: '0rtp', val: 'nIdLs', stopAtFirst: true });
+  if (err) return usageError(ctx, err);
+  const input = await ctx.stdinText();
+  const items = o['0'] ? input.split('\0').filter(Boolean) : (o.d ? input.split(o.d) : input.split(/\s+/)).filter(Boolean);
+  const base = rest.length ? rest : ['echo'];
+  if (!items.length && o.r) return 0;
+  let rc = 0;
+  if (o.I) { for (const it of items) { const st = await ctx.exec(base.map((a) => a.split(o.I).join(it)), ctx.stdio); if (st) rc = 123; } return rc; }
+  const per = o.n ? Number(o.n) : items.length || 1;
+  for (let i = 0; i < Math.max(items.length, 1); i += per) { const st = await ctx.exec([...base, ...items.slice(i, i + per)], ctx.stdio); if (st) rc = 123; }
+  return rc;
+});
+
+cmd('base64', async (ctx) => {
+  const { o, rest, err } = parseOpts(ctx.args, { bool: 'd', val: 'w', long: { decode: 'd', wrap: { key: 'w', val: true } } });
+  if (err) return usageError(ctx, err);
+  const text = rest.length ? (readInput(ctx, rest[0]).text ?? '') : await ctx.stdinText();
+  if (o.d) {
+    try { const bin = atob(text.replace(/\s+/g, '')); const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0)); ctx.out(new TextDecoder().decode(bytes)); return 0; } catch { ctx.err('base64: invalid input\n'); return 1; }
+  }
+  const enc = btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const w = o.w != null ? Number(o.w) : 76;
+  ctx.out((w > 0 ? enc.replace(new RegExp(`(.{${w}})`, 'g'), '$1\n') : enc).replace(/\n$/, '') + '\n');
+  return 0;
+});
+
+cmd(['sha256sum', 'md5sum', 'sha1sum'], async (ctx) => {
+  const h = ctx.name === 'sha256sum' ? sha256hex : ctx.name === 'md5sum' ? md5ish : (s) => sha256hex('sha1:' + s).slice(0, 40);
+  if (!ctx.args.length) { ctx.out(`${h(await ctx.stdinText())}  -\n`); return 0; }
+  let rc = 0;
+  for (const f of ctx.args) { const r = readInput(ctx, f); if (r.error) { ctx.err(`${ctx.name}: ${f}: ${r.error}\n`); rc = 1; } else ctx.out(`${h(r.text)}  ${f}\n`); }
+  return rc;
+});
+
+cmd('basename', (ctx) => { if (!ctx.args.length) return ctx.fail('missing operand', 1); let b = posix.basename(ctx.args[0]); if (ctx.args[1] && b.endsWith(ctx.args[1]) && b !== ctx.args[1]) b = b.slice(0, -ctx.args[1].length); ctx.out(b + '\n'); return 0; });
+cmd('dirname', (ctx) => { if (!ctx.args.length) return ctx.fail('missing operand', 1); for (const a of ctx.args) ctx.out(posix.dirname(a) + '\n'); return 0; });
+cmd('seq', (ctx) => {
+  const n = ctx.args.filter((a) => !a.startsWith('-') || /^-\d/.test(a)).map(Number);
+  if (!n.length) return ctx.fail('missing operand', 1);
+  const [a, step, b] = n.length === 1 ? [1, 1, n[0]] : n.length === 2 ? [n[0], 1, n[1]] : n;
+  const out = []; for (let i = a; step > 0 ? i <= b : i >= b; i += step) { out.push(i); if (out.length > 100000) break; }
+  ctx.out(out.join('\n') + (out.length ? '\n' : '')); return 0;
+});
+cmd(['less', 'more'], async (ctx) => { const t = rest0(ctx) ?? (await ctx.stdinText()); ctx.out(t); return 0; });
+cmd('yes', async (ctx) => { for (let i = 0; i < 20 && !ctx.aborted(); i++) ctx.out((ctx.args.join(' ') || 'y') + '\n'); return 0; });
+cmd('nl', async (ctx) => { const t = rest0(ctx) ?? (await ctx.stdinText()); let n = 0; ctx.out(lines(t).map((l) => (l === '' ? '' : `${String(++n).padStart(6)}\t`) + l).join('\n') + '\n'); return 0; });
+cmd('diff', (ctx) => {
+  const [a, b] = ctx.args.filter((x) => !x.startsWith('-'));
+  const ra = readInput(ctx, a); const rb = readInput(ctx, b);
+  if (ra.error || rb.error) { ctx.err(`diff: ${ra.error ? a : b}: ${ra.error || rb.error}\n`); return 2; }
+  const la = lines(ra.text); const lb = lines(rb.text); let rc = 0;
+  const max = Math.max(la.length, lb.length);
+  for (let i = 0; i < max; i++) if (la[i] !== lb[i]) { rc = 1; if (la[i] !== undefined) ctx.out(`${i + 1}c${i + 1}\n< ${la[i]}\n---\n> ${lb[i] ?? ''}\n`); else ctx.out(`${la.length}a${i + 1}\n> ${lb[i]}\n`); }
+  return rc;
+});
+cmd('column', async (ctx) => { const t = await ctx.stdinText(); const rows = lines(t).map((l) => l.split(/\s+/)); const w = []; rows.forEach((r) => r.forEach((c, i) => { w[i] = Math.max(w[i] || 0, c.length); })); ctx.out(rows.map((r) => r.map((c, i) => (i === r.length - 1 ? c : c.padEnd(w[i] + 2))).join('')).join('\n') + '\n'); return 0; });

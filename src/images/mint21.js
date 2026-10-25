@@ -1,269 +1,296 @@
-// Builds a fresh Linux Mint 21.3 "Virginia" (Ubuntu 22.04 / jammy base) machine as a System.
-// Everything is real files in the virtual FS; scenarios then break things on top of this image.
+// Builds a clean, freshly installed Linux Mint 21.3 "Virginia" (Cinnamon, Ubuntu 22.04 base) machine.
+// A scenario then breaks it on purpose (see src/scenarios/*).
 import { System } from '../core/system.js';
-import * as users from '../core/users.js';
+import * as C from './configs.js';
+import { PACKAGES, SERVICES } from './catalog.js';
 import * as pk from '../core/packages.js';
 import * as sv from '../core/services.js';
-import { SYSCTL_DEFAULTS } from '../core/sysctl.js';
-import { sysctlPath } from '../core/sysctl.js';
-import { PACKAGES, SERVICES } from './catalog.js';
-import * as C from './configs.js';
+import * as users from '../core/users.js';
+import { daysSinceEpoch, fmtSyslog } from '../core/util.js';
+import { sysctlPath, sysctlSet } from '../core/sysctl.js';
 
-/** Small seeded PRNG so images are reproducible in tests. */
-export function seededRng(seed = 1) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
+export const IMAGE_ID = 'mint21';
 export const KERNEL = '5.15.0-126-generic';
-const KERNEL_BUILD = '#136-Ubuntu SMP Wed Nov 6 10:38:22 UTC 2024';
+
+const SYSTEM_GROUPS = [
+  ['root', 0], ['daemon', 1], ['bin', 2], ['sys', 3], ['adm', 4], ['tty', 5], ['disk', 6], ['lp', 7], ['mail', 8], ['news', 9],
+  ['uucp', 10], ['man', 12], ['proxy', 13], ['kmem', 15], ['dialout', 20], ['fax', 21], ['voice', 22], ['cdrom', 24], ['floppy', 25],
+  ['tape', 26], ['sudo', 27], ['audio', 29], ['dip', 30], ['www-data', 33], ['backup', 34], ['operator', 37], ['list', 38], ['irc', 39],
+  ['src', 40], ['gnats', 41], ['shadow', 42], ['utmp', 43], ['video', 44], ['sasl', 45], ['plugdev', 46], ['staff', 50], ['games', 60],
+  ['users', 100], ['systemd-journal', 101], ['systemd-network', 102], ['systemd-resolve', 103], ['crontab', 104], ['messagebus', 105],
+  ['syslog', 106], ['avahi', 107], ['lpadmin', 108], ['lightdm', 109], ['nopasswdlogin', 110], ['sambashare', 111], ['polkitd', 112],
+  ['ssl-cert', 113], ['rtkit', 114], ['pulse', 115], ['pulse-access', 116], ['render', 117], ['input', 118], ['netdev', 119],
+  ['bluetooth', 120], ['kvm', 121], ['colord', 122], ['geoclue', 123], ['scanner', 124], ['fwupd-refresh', 125], ['systemd-timesync', 126],
+  ['nogroup', 65534],
+];
 
 // name, uid, gid, gecos, home, shell
 const SYSTEM_USERS = [
-  ['root', 0, 0, 'root', '/root', '/bin/bash'], ['daemon', 1, 1, 'daemon', '/usr/sbin', '/usr/sbin/nologin'],
-  ['bin', 2, 2, 'bin', '/bin', '/usr/sbin/nologin'], ['sys', 3, 3, 'sys', '/dev', '/usr/sbin/nologin'],
-  ['sync', 4, 65534, 'sync', '/bin', '/bin/sync'], ['games', 5, 60, 'games', '/usr/games', '/usr/sbin/nologin'],
-  ['man', 6, 12, 'man', '/var/cache/man', '/usr/sbin/nologin'], ['lp', 7, 7, 'lp', '/var/spool/lpd', '/usr/sbin/nologin'],
-  ['mail', 8, 8, 'mail', '/var/mail', '/usr/sbin/nologin'], ['news', 9, 9, 'news', '/var/spool/news', '/usr/sbin/nologin'],
-  ['uucp', 10, 10, 'uucp', '/var/spool/uucp', '/usr/sbin/nologin'], ['proxy', 13, 13, 'proxy', '/bin', '/usr/sbin/nologin'],
-  ['www-data', 33, 33, 'www-data', '/var/www', '/usr/sbin/nologin'], ['backup', 34, 34, 'backup', '/var/backups', '/usr/sbin/nologin'],
-  ['list', 38, 38, 'Mailing List Manager', '/var/list', '/usr/sbin/nologin'], ['irc', 39, 39, 'ircd', '/run/ircd', '/usr/sbin/nologin'],
+  ['root', 0, 0, 'root', '/root', '/bin/bash'],
+  ['daemon', 1, 1, 'daemon', '/usr/sbin', '/usr/sbin/nologin'],
+  ['bin', 2, 2, 'bin', '/bin', '/usr/sbin/nologin'],
+  ['sys', 3, 3, 'sys', '/dev', '/usr/sbin/nologin'],
+  ['sync', 4, 65534, 'sync', '/bin', '/bin/sync'],
+  ['games', 5, 60, 'games', '/usr/games', '/usr/sbin/nologin'],
+  ['man', 6, 12, 'man', '/var/cache/man', '/usr/sbin/nologin'],
+  ['lp', 7, 7, 'lp', '/var/spool/lpd', '/usr/sbin/nologin'],
+  ['mail', 8, 8, 'mail', '/var/mail', '/usr/sbin/nologin'],
+  ['news', 9, 9, 'news', '/var/spool/news', '/usr/sbin/nologin'],
+  ['uucp', 10, 10, 'uucp', '/var/spool/uucp', '/usr/sbin/nologin'],
+  ['proxy', 13, 13, 'proxy', '/bin', '/usr/sbin/nologin'],
+  ['www-data', 33, 33, 'www-data', '/var/www', '/usr/sbin/nologin'],
+  ['backup', 34, 34, 'backup', '/var/backups', '/usr/sbin/nologin'],
+  ['list', 38, 38, 'Mailing List Manager', '/var/list', '/usr/sbin/nologin'],
+  ['irc', 39, 39, 'ircd', '/run/ircd', '/usr/sbin/nologin'],
   ['gnats', 41, 41, 'Gnats Bug-Reporting System (admin)', '/var/lib/gnats', '/usr/sbin/nologin'],
   ['nobody', 65534, 65534, 'nobody', '/nonexistent', '/usr/sbin/nologin'],
   ['systemd-network', 100, 102, 'systemd Network Management,,,', '/run/systemd', '/usr/sbin/nologin'],
   ['systemd-resolve', 101, 103, 'systemd Resolver,,,', '/run/systemd', '/usr/sbin/nologin'],
-  ['messagebus', 102, 105, '', '/nonexistent', '/usr/sbin/nologin'], ['systemd-timesync', 103, 106, 'systemd Time Synchronization,,,', '/run/systemd', '/usr/sbin/nologin'],
-  ['syslog', 104, 110, '', '/home/syslog', '/usr/sbin/nologin'], ['_apt', 105, 65534, '', '/nonexistent', '/usr/sbin/nologin'],
-  ['tss', 106, 111, 'TPM software stack,,,', '/var/lib/tpm', '/bin/false'], ['uuidd', 107, 112, '', '/run/uuidd', '/usr/sbin/nologin'],
-  ['tcpdump', 108, 113, '', '/nonexistent', '/usr/sbin/nologin'], ['avahi-autoipd', 109, 114, 'Avahi autoip daemon,,,', '/var/lib/avahi-autoipd', '/usr/sbin/nologin'],
-  ['usbmux', 110, 46, 'usbmux daemon,,,', '/var/lib/usbmux', '/usr/sbin/nologin'], ['rtkit', 111, 117, 'RealtimeKit,,,', '/proc', '/usr/sbin/nologin'],
-  ['dnsmasq', 112, 65534, 'dnsmasq,,,', '/var/lib/misc', '/usr/sbin/nologin'], ['cups-pk-helper', 113, 120, 'user for cups-pk-helper service,,,', '/home/cups-pk-helper', '/usr/sbin/nologin'],
-  ['speech-dispatcher', 114, 29, 'Speech Dispatcher,,,', '/run/speech-dispatcher', '/bin/false'], ['avahi', 115, 121, 'Avahi mDNS daemon,,,', '/run/avahi-daemon', '/usr/sbin/nologin'],
-  ['kernoops', 116, 65534, 'Kernel Oops Tracking Daemon,,,', '/', '/usr/sbin/nologin'], ['saned', 117, 123, '', '/var/lib/saned', '/usr/sbin/nologin'],
-  ['nm-openvpn', 118, 124, 'NetworkManager OpenVPN,,,', '/var/lib/openvpn/chroot', '/usr/sbin/nologin'], ['hplip', 119, 7, 'HPLIP system user,,,', '/run/hplip', '/bin/false'],
-  ['whoopsie', 120, 125, '', '/nonexistent', '/bin/false'], ['colord', 121, 126, 'colord colour management daemon,,,', '/var/lib/colord', '/usr/sbin/nologin'],
-  ['geoclue', 122, 127, '', '/var/lib/geoclue', '/usr/sbin/nologin'], ['pulse', 123, 128, 'PulseAudio daemon,,,', '/run/pulse', '/usr/sbin/nologin'],
-  ['gnome-initial-setup', 124, 65534, '', '/run/gnome-initial-setup/', '/bin/false'], ['lightdm', 125, 129, 'Light Display Manager', '/var/lib/lightdm', '/bin/false'],
-  ['polkitd', 997, 997, 'polkit', '/nonexistent', '/usr/sbin/nologin'],
+  ['messagebus', 102, 105, '', '/nonexistent', '/usr/sbin/nologin'],
+  ['systemd-timesync', 103, 126, 'systemd Time Synchronization,,,', '/run/systemd', '/usr/sbin/nologin'],
+  ['syslog', 104, 106, '', '/home/syslog', '/usr/sbin/nologin'],
+  ['_apt', 105, 65534, '', '/nonexistent', '/usr/sbin/nologin'],
+  ['avahi', 106, 107, 'Avahi mDNS daemon,,,', '/run/avahi-daemon', '/usr/sbin/nologin'],
+  ['polkitd', 107, 112, 'PolicyKit daemon,,,', '/nonexistent', '/usr/sbin/nologin'],
+  ['lightdm', 108, 109, 'Light Display Manager', '/var/lib/lightdm', '/bin/false'],
+  ['rtkit', 109, 114, 'RealtimeKit,,,', '/proc', '/usr/sbin/nologin'],
+  ['pulse', 110, 115, 'PulseAudio daemon,,,', '/run/pulse', '/usr/sbin/nologin'],
+  ['colord', 111, 122, 'colord colour management daemon,,,', '/var/lib/colord', '/usr/sbin/nologin'],
+  ['geoclue', 112, 123, '', '/var/lib/geoclue', '/usr/sbin/nologin'],
+  ['cups-pk-helper', 113, 108, 'user for cups-pk-helper service,,,', '/home/cups-pk-helper', '/usr/sbin/nologin'],
+  ['saned', 114, 124, '', '/var/lib/saned', '/usr/sbin/nologin'],
+  ['fwupd-refresh', 115, 125, 'fwupd-refresh user,,,', '/run/systemd', '/usr/sbin/nologin'],
+  ['usbmux', 116, 46, 'usbmux daemon,,,', '/var/lib/usbmux', '/usr/sbin/nologin'],
 ];
 
-const SYSTEM_GROUPS = [
-  ['root', 0], ['daemon', 1], ['bin', 2], ['sys', 3], ['adm', 4], ['tty', 5], ['disk', 6], ['lp', 7], ['mail', 8], ['news', 9], ['uucp', 10], ['man', 12],
-  ['proxy', 13], ['kmem', 15], ['dialout', 20], ['fax', 21], ['voice', 22], ['cdrom', 24], ['floppy', 25], ['tape', 26], ['sudo', 27], ['audio', 29], ['dip', 30],
-  ['www-data', 33], ['backup', 34], ['operator', 37], ['list', 38], ['irc', 39], ['src', 40], ['gnats', 41], ['shadow', 42], ['utmp', 43], ['video', 44], ['sasl', 45],
-  ['plugdev', 46], ['staff', 50], ['games', 60], ['users', 100], ['systemd-journal', 101], ['systemd-network', 102], ['systemd-resolve', 103], ['input', 104],
-  ['messagebus', 105], ['systemd-timesync', 106], ['kvm', 107], ['render', 108], ['crontab', 109], ['syslog', 110], ['tss', 111], ['uuidd', 112], ['tcpdump', 113],
-  ['avahi-autoipd', 114], ['netdev', 115], ['bluetooth', 116], ['rtkit', 117], ['ssl-cert', 118], ['lpadmin', 119], ['scanner', 122], ['avahi', 121], ['saned', 123],
-  ['nm-openvpn', 124], ['whoopsie', 125], ['colord', 126], ['geoclue', 127], ['pulse', 128], ['pulse-access', 130], ['lightdm', 129], ['nopasswdlogin', 131],
-  ['sambashare', 132], ['polkitd', 997], ['nogroup', 65534],
+const DIRS = [
+  ['/', 0o755], ['/usr', 0o755], ['/usr/bin', 0o755], ['/usr/sbin', 0o755], ['/usr/lib', 0o755], ['/usr/share', 0o755], ['/usr/games', 0o755],
+  ['/usr/local', 0o755], ['/usr/local/bin', 0o755], ['/usr/local/sbin', 0o755], ['/usr/local/share', 0o755], ['/usr/share/applications', 0o755],
+  ['/etc', 0o755], ['/etc/pam.d', 0o755], ['/etc/security', 0o755], ['/etc/ssh', 0o755], ['/etc/ssh/sshd_config.d', 0o755], ['/etc/sudoers.d', 0o750],
+  ['/etc/cron.d', 0o755], ['/etc/cron.hourly', 0o755], ['/etc/cron.daily', 0o755], ['/etc/cron.weekly', 0o755], ['/etc/cron.monthly', 0o755],
+  ['/etc/sysctl.d', 0o755], ['/etc/apt', 0o755], ['/etc/apt/apt.conf.d', 0o755], ['/etc/apt/sources.list.d', 0o755], ['/etc/default', 0o755],
+  ['/etc/skel', 0o755], ['/etc/systemd/system/multi-user.target.wants', 0o755], ['/etc/lightdm', 0o755], ['/etc/lightdm/lightdm.conf.d', 0o755],
+  ['/etc/xdg/autostart', 0o755], ['/etc/init.d', 0o755], ['/etc/ufw', 0o755],
+  ['/var', 0o755], ['/var/log', 0o775], ['/var/log/apt', 0o755], ['/var/lib', 0o755], ['/var/lib/dpkg', 0o755], ['/var/cache', 0o755], ['/var/backups', 0o755],
+  ['/var/spool', 0o755], ['/var/spool/cron', 0o755], ['/var/spool/cron/crontabs', 0o1730], ['/var/mail', 0o2775], ['/var/www', 0o755], ['/var/tmp', 0o1777],
+  ['/tmp', 0o1777], ['/run', 0o755], ['/run/systemd/resolve', 0o755], ['/run/lock', 0o1777], ['/srv', 0o755], ['/opt', 0o755], ['/mnt', 0o755], ['/media', 0o755],
+  ['/home', 0o755], ['/root', 0o700], ['/boot', 0o755], ['/dev', 0o755], ['/proc', 0o555], ['/sys', 0o555], ['/lost+found', 0o700],
 ];
 
-const INSTALL_DAYS_AGO = 45;
-const BOOT_MIN_AGO = 38;
+function seedFile(sys, path, data, { mode = 0o644, uid = 0, gid = 0, mtime } = {}) {
+  const dir = path.slice(0, path.lastIndexOf('/')) || '/';
+  if (!sys.vfs.exists(dir)) sys.vfs.mkdir(dir, { parents: true, mode: 0o755 });
+  sys.vfs.writeFile(path, data, { mode, uid, gid, mtime });
+}
 
-const dir = (sys, p, mode = 0o755, uid = 0, gid = 0) => { if (!sys.vfs.exists(p)) sys.vfs.mkdir(p, { parents: true, mode, uid, gid }); };
-const put = (sys, p, data, mode = 0o644, uid = 0, gid = 0) => {
-  dir(sys, p.slice(0, p.lastIndexOf('/')) || '/');
-  return sys.vfs.writeFile(p, data, { mode, uid, gid });
-};
+const cmdlineOf = (p) => p;
 
-/** (Re)attach virtual /proc, /dev and /proc/sys nodes. Call again after System.restore(): generated nodes are not serialized. */
+/** Mount /dev and /proc nodes. Safe to call again after System.restore (generated nodes aren't serialized). */
 export function mountVirtual(sys) {
   const v = sys.vfs;
-  const gen = (p, fn, set) => { const n = put(sys, p, '', set ? 0o644 : 0o444); n.gen = fn; if (set) n.set = set; };
-  for (const [name, kind] of [['null', 'null'], ['zero', 'zero'], ['urandom', 'urandom'], ['random', 'urandom'], ['full', 'zero']]) {
-    if (!v.exists(`/dev/${name}`)) { const n = put(sys, `/dev/${name}`, '', 0o666); n.dev = kind; }
-    else v.lookup(`/dev/${name}`).dev = kind;
-  }
-  const up = () => (sys.now() - sys.bootTime) / 1000;
-  gen('/proc/version', () => `Linux version ${KERNEL} (buildd@lcy02-amd64-051) (gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0, GNU ld (GNU Binutils for Ubuntu) 2.38) ${KERNEL_BUILD}\n`);
-  gen('/proc/uptime', () => `${up().toFixed(2)} ${(up() * 3.7).toFixed(2)}\n`);
-  gen('/proc/loadavg', () => `0.${String(12 + (sys.processes.length % 40)).padStart(2, '0')} 0.15 0.11 1/${sys.processes.length + 380} ${sys.nextPid - 1}\n`);
-  gen('/proc/cmdline', () => `BOOT_IMAGE=/boot/vmlinuz-${KERNEL} root=UUID=3b9c5a1e-7a52-4e0c-9d0f-5f1c3b2a7d10 ro quiet splash\n`);
-  gen('/proc/meminfo', () => {
-    const used = 1_100_000 + sys.processes.length * 900;
-    return `MemTotal:        4015436 kB\nMemFree:         ${2400000 - used + 1_100_000} kB\nMemAvailable:    ${3012000 - used + 1_100_000} kB\nBuffers:           98304 kB\nCached:          1240312 kB\nSwapCached:            0 kB\nSwapTotal:       2097148 kB\nSwapFree:        2097148 kB\n`;
-  });
-  gen('/proc/cpuinfo', () => ['0', '1'].map((i) => `processor\t: ${i}\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel\t\t: 158\nmodel name\t: Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz\ncpu MHz\t\t: 1800.000\ncache size\t: 6144 KB\ncpu cores\t: 2\n`).join('\n'));
-  for (const key of Object.keys(SYSCTL_DEFAULTS)) {
-    gen(sysctlPath(key), () => `${sys.sysctl[key]}\n`, (val) => { sys.sysctl[key] = String(val).trim(); sys.touch('sysctl'); });
-  }
-}
-
-function seedLogs(sys, installAt, bootAt) {
-  const at = (ms, prog, msg, pid) => {
-    const d = new Date(ms);
-    const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
-    const p2 = (n) => String(n).padStart(2, '0');
-    return `${M} ${String(d.getDate()).padStart(2, ' ')} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())} ${sys.hostname} ${prog}${pid ? `[${pid}]` : ''}: ${msg}\n`;
+  const dev = (path, kind, mode = 0o666) => {
+    if (v.exists(path)) return;
+    const n = v.writeFile(path, '', { mode, uid: 0, gid: 0 });
+    n.dev = kind;
   };
-  const sysl = [
-    at(bootAt, 'kernel', `Linux version ${KERNEL} (buildd@lcy02-amd64-051)`),
-    at(bootAt + 1000, 'systemd', 'Started Journal Service.', 1), at(bootAt + 3000, 'systemd', 'Reached target Multi-User System.', 1),
-    at(bootAt + 5000, 'NetworkManager', '<info>  [1] device (enp0s3): state change: config -> ip-config', 612),
-    at(bootAt + 9000, 'systemd', 'Started Light Display Manager.', 1),
-  ].join('');
-  put(sys, '/var/log/syslog', sysl, 0o640, 104, 4);
-  put(sys, '/var/log/kern.log', at(bootAt, 'kernel', 'Linux version ' + KERNEL), 0o640, 104, 4);
-  put(sys, '/var/log/auth.log', at(bootAt + 12000, 'lightdm', 'pam_unix(lightdm:session): session opened for user student(uid=1000) by (uid=0)', 1288) + at(bootAt + 12100, 'systemd-logind', 'New session c1 of user student.', 700), 0o640, 104, 4);
-  put(sys, '/var/log/dpkg.log', `${new Date(installAt).toISOString().replace('T', ' ').slice(0, 19)} startup archives unpack\n`, 0o644, 0, 4);
-  put(sys, '/var/log/apt/history.log', '', 0o644);
-  put(sys, '/var/log/ufw.log', '', 0o640, 104, 4);
-  put(sys, '/var/log/faillog', '', 0o644);
-  put(sys, '/var/log/lastlog', '', 0o644);
-  // utmp / wtmp: one line per record, "user<TAB>tty<TAB>host<TAB>epoch_ms<TAB>kind"
-  const rec = (u, tty, host, ms, kind) => `${u}\t${tty}\t${host}\t${ms}\t${kind}\n`;
-  put(sys, '/var/run/utmp', rec('student', ':0', ':0', bootAt + 12000, 'login'), 0o664, 0, 43);
-  put(sys, '/var/log/wtmp', rec('reboot', 'system boot', KERNEL, bootAt, 'boot') + rec('student', ':0', ':0', bootAt + 12000, 'login'), 0o664, 0, 43);
-  put(sys, '/var/log/btmp', '', 0o660, 0, 43);
+  if (!v.exists('/dev')) v.mkdir('/dev');
+  dev('/dev/null', 'null'); dev('/dev/zero', 'zero'); dev('/dev/urandom', 'random'); dev('/dev/random', 'random'); dev('/dev/tty', 'null');
+  const gen = (path, fn, set, mode) => {
+    const dir = path.slice(0, path.lastIndexOf('/')) || '/';
+    if (!v.exists(dir)) v.mkdir(dir, { parents: true, mode: 0o555 });
+    let n = v.lookup(path, { follow: false });
+    if (!n) n = v.writeFile(path, '', { mode: mode ?? (set ? 0o644 : 0o444), uid: 0, gid: 0 });
+    n.gen = fn;
+    if (set) n.set = set;
+    return n;
+  };
+  const up = () => (sys.now() - sys.bootTime) / 1000;
+  gen('/proc/uptime', () => `${up().toFixed(2)} ${(up() * 1.7).toFixed(2)}\n`);
+  gen('/proc/loadavg', () => `0.${12 + (sys.processes.length % 30)} 0.18 0.14 1/${sys.processes.length + 220} ${sys.nextPid}\n`);
+  gen('/proc/version', () => `Linux version ${KERNEL} (buildd@lcy02-amd64-044) (gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0, GNU ld (GNU Binutils for Ubuntu) 2.38) #136-Ubuntu SMP Wed Nov 6 10:38:22 UTC 2024\n`);
+  gen('/proc/cmdline', () => `BOOT_IMAGE=/boot/vmlinuz-${KERNEL} root=UUID=6f1a1c6e-2c7d-4c0e-9a5a-7d0d6c2c9b11 ro quiet splash\n`);
+  gen('/proc/meminfo', () => {
+    const used = 1400000 + sys.processes.length * 3100;
+    return `MemTotal:        4017828 kB\nMemFree:         ${4017828 - used - 900000} kB\nMemAvailable:    ${4017828 - used} kB\nBuffers:           98204 kB\nCached:           802120 kB\nSwapTotal:       2097148 kB\nSwapFree:        2097148 kB\n`;
+  });
+  gen('/proc/cpuinfo', () => [0, 1].map((i) => `processor\t: ${i}\nvendor_id\t: GenuineIntel\ncpu family\t: 6\nmodel name\t: Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz\ncpu MHz\t\t: 1800.000\ncache size\t: 6144 KB\ncpu cores\t: 2\n`).join('\n'));
+  gen('/proc/mounts', () => '/dev/sda2 / ext4 rw,relatime,errors=remount-ro 0 0\nproc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\nsysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\ntmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime,size=401784k,mode=755 0 0\n/dev/sda1 /boot/efi vfat rw,relatime,umask=0077 0 0\n');
+  for (const key of Object.keys(sys.sysctl)) {
+    gen(sysctlPath(key), () => `${sys.sysctl[key]}\n`, (val) => sysctlSet(sys, key, String(val).trim()));
+  }
 }
 
-function seedProcesses(sys, hostIp = '10.0.2.15') {
-  void hostIp;
+/** Standard processes of a running Mint session. */
+function spawnBaseProcesses(sys) {
+  const boot = sys.bootTime;
+  const mk = (o) => { const p = sys.spawn(o); p.start = boot + (o.delay || 0); return p; };
   sys.nextPid = 1;
-  const init = sys.spawn({ user: 'root', cmd: '/sbin/init splash', comm: 'systemd', ppid: 0, stat: 'Ss' });
+  mk({ cmd: '/sbin/init splash', comm: 'systemd', ppid: 0, stat: 'Ss' });
   sys.nextPid = 2;
-  const kt = sys.spawn({ user: 'root', cmd: '[kthreadd]', comm: 'kthreadd', ppid: 0, stat: 'S' });
-  for (const [pid, name] of [[3, 'rcu_gp'], [4, 'rcu_par_gp'], [6, 'kworker/0:0H-events_highpri'], [9, 'mm_percpu_wq'], [10, 'rcu_tasks_rude_'], [12, 'ksoftirqd/0'], [13, 'rcu_sched'], [14, 'migration/0'], [15, 'cpuhp/0'], [18, 'kdevtmpfs'], [19, 'netns'], [24, 'kauditd'], [26, 'khungtaskd'], [28, 'oom_reaper'], [30, 'kcompactd0'], [33, 'kblockd'], [51, 'kswapd0'], [96, 'scsi_eh_0'], [160, 'jbd2/sda1-8']]) {
-    sys.nextPid = pid;
-    sys.spawn({ user: 'root', cmd: `[${name}]`, comm: name.slice(0, 15), ppid: kt.pid, stat: 'I<', cpu: 0, mem: 0 });
+  mk({ cmd: '[kthreadd]', comm: 'kthreadd', ppid: 0, stat: 'S' });
+  for (const k of ['rcu_gp', 'rcu_par_gp', 'netns', 'kworker/0:0H-events_highpri', 'mm_percpu_wq', 'ksoftirqd/0', 'rcu_sched', 'migration/0', 'cpuhp/0', 'kswapd0', 'kworker/u4:3-events_unbound', 'jbd2/sda2-8']) {
+    mk({ cmd: `[${k}]`, comm: k.split('/')[0], ppid: 2, stat: 'I<', cpu: 0, mem: 0 });
   }
-  sys.nextPid = 320;
-  const base = [
-    ['root', '/lib/systemd/systemd-journald', 'systemd-journald'],
-    ['root', '/lib/systemd/systemd-udevd', 'systemd-udevd'],
-    ['systemd-timesync', '/lib/systemd/systemd-timesyncd', 'systemd-timesyn'],
-    ['root', '/lib/systemd/systemd-logind', 'systemd-logind'],
-  ];
-  for (const [user, cmd, comm] of base) sys.spawn({ user, cmd, comm, ppid: init.pid });
-  return init;
+  sys.nextPid = 330;
+  mk({ cmd: '/lib/systemd/systemd-journald', comm: 'systemd-journal', stat: 'S<s' });
+  mk({ cmd: '/lib/systemd/systemd-udevd', comm: 'systemd-udevd', stat: 'Ss' });
+  mk({ cmd: '/lib/systemd/systemd-timesyncd', comm: 'systemd-timesyn', user: 'systemd-timesync', stat: 'Ssl' });
+  mk({ cmd: '/lib/systemd/systemd-networkd', comm: 'systemd-network', user: 'systemd-network', stat: 'Ss' });
+  mk({ cmd: '/lib/systemd/systemd-logind', comm: 'systemd-logind', stat: 'Ss' });
 }
 
-/**
- * @param {{now?: () => number, rng?: () => number, hostname?: string, studentPassword?: string}} opts
- */
-export function buildMint21({ now = () => Date.now(), rng = seededRng(21), hostname = 'mint', studentPassword = 'cyberpatriot' } = {}) {
-  const realNow = now;
-  const t0 = realNow();
-  const installAt = t0 - INSTALL_DAYS_AGO * 86400000;
-  const bootAt = t0 - BOOT_MIN_AGO * 60000;
-  let clock = installAt;
-  const sys = new System({ now: () => clock, rng, hostname });
-  sys.bootTime = bootAt;
+function spawnSession(sys) {
+  const boot = sys.bootTime;
+  const mk = (o) => { const p = sys.spawn({ user: 'student', ...o }); p.start = boot + 40000 + (o.delay || 0); return p; };
+  sys.nextPid = 1150;
+  const dm = sys.spawn({ cmd: '/usr/lib/xorg/Xorg -core :0 -seat seat0 -auth /var/run/lightdm/root/:0 -nolisten tcp vt7 -novtswitch', comm: 'Xorg', tty: 'tty7', stat: 'Ssl+' });
+  dm.start = boot + 30000;
+  const sess = sys.spawn({ cmd: 'lightdm --session-child 12 19', comm: 'lightdm', stat: 'Sl' });
+  sess.start = boot + 38000;
+  const cs = mk({ cmd: '/usr/bin/cinnamon-session-cinnamon', comm: 'cinnamon-sessio', stat: 'Ssl' });
+  mk({ cmd: '/usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only', comm: 'dbus-daemon', stat: 'Ss', ppid: 1 });
+  mk({ cmd: 'cinnamon --replace', comm: 'cinnamon', stat: 'Sl', ppid: cs.pid, cpu: 2.1, mem: 4.8 });
+  mk({ cmd: 'nemo-desktop', comm: 'nemo-desktop', stat: 'Sl', ppid: cs.pid, mem: 1.7 });
+  mk({ cmd: '/usr/libexec/csd-power', comm: 'csd-power', stat: 'Sl', ppid: cs.pid });
+  mk({ cmd: '/usr/bin/pipewire', comm: 'pipewire', stat: 'Ssl', ppid: 1 });
+  mk({ cmd: '/usr/bin/pulseaudio --daemonize=no --log-target=journal', comm: 'pulseaudio', stat: 'S<sl', ppid: 1 });
+  mk({ cmd: '/usr/libexec/gnome-terminal-server', comm: 'gnome-terminal-', stat: 'Ssl', ppid: 1, mem: 1.1 });
+  const sh = mk({ cmd: 'bash', comm: 'bash', tty: 'pts/0', stat: 'Ss', delay: 120000 });
+  return sh;
+}
+
+export function buildMint21({ now = () => Date.now(), rng = Math.random, hostname = 'mint' } = {}) {
+  const sys = new System({ now, rng, hostname });
   const v = sys.vfs;
+  const t0 = sys.now();
+  const installed = t0 - 40 * 86400000;
+  sys.bootTime = t0 - 47 * 60000;
+  sys.misc.image = IMAGE_ID;
 
-  // ---- directory skeleton (usrmerge: /bin /sbin /lib /lib64 are symlinks)
-  for (const d of ['usr/bin', 'usr/sbin', 'usr/lib', 'usr/lib64', 'usr/local/bin', 'usr/local/sbin', 'usr/local/lib', 'usr/share/applications', 'usr/share/backgrounds/linuxmint', 'usr/games', 'usr/libexec', 'usr/include', 'usr/src']) dir(sys, '/' + d);
-  for (const [l, t] of [['bin', 'usr/bin'], ['sbin', 'usr/sbin'], ['lib', 'usr/lib'], ['lib64', 'usr/lib64']]) v.symlink(t, '/' + l);
-  for (const d of ['boot', 'media', 'mnt', 'opt', 'srv', 'etc', 'run', 'var/lib', 'var/cache', 'var/spool', 'var/mail', 'var/backups', 'var/local', 'var/opt', 'var/www', 'var/crash', 'proc', 'sys', 'dev/pts', 'dev/shm', 'home']) dir(sys, '/' + d);
-  v.chmod('/var/www', 0o755);
-  dir(sys, '/root', 0o700);
-  dir(sys, '/tmp', 0o1777);
-  dir(sys, '/var/tmp', 0o1777);
-  dir(sys, '/var/log', 0o775, 0, 4);
-  dir(sys, '/var/log/apt');
-  dir(sys, '/var/spool/cron/crontabs', 0o1730, 0, 109);
-  dir(sys, '/var/mail', 0o2775, 0, 8);
-  v.symlink('/run', '/var/run');
-  v.symlink('/run/lock', '/var/lock');
-  dir(sys, '/run/lock', 0o1777);
-  dir(sys, '/etc/skel');
-  dir(sys, '/etc/cron.d'); dir(sys, '/etc/cron.hourly'); dir(sys, '/etc/cron.daily'); dir(sys, '/etc/cron.weekly'); dir(sys, '/etc/cron.monthly');
-  dir(sys, '/etc/ssh/sshd_config.d'); dir(sys, '/etc/sudoers.d', 0o750); dir(sys, '/etc/pam.d'); dir(sys, '/etc/security'); dir(sys, '/etc/sysctl.d');
-  dir(sys, '/etc/apt/apt.conf.d'); dir(sys, '/etc/apt/sources.list.d'); dir(sys, '/etc/lightdm/lightdm.conf.d'); dir(sys, '/etc/systemd/system/multi-user.target.wants');
-  dir(sys, '/etc/xdg/autostart'); dir(sys, '/usr/share/doc'); dir(sys, '/var/lib/dpkg'); dir(sys, '/var/lib/apt/lists'); dir(sys, '/lib/systemd/system');
+  // --- directory skeleton, usr-merge symlinks
+  for (const [p, m] of DIRS) if (p !== '/') v.mkdir(p, { parents: true, mode: m & 0o7777, uid: 0, gid: p === '/var/log' ? 4 : 0 });
+  v.root.mode = 0o755;
+  for (const [l, t] of [['/bin', 'usr/bin'], ['/sbin', 'usr/sbin'], ['/lib', 'usr/lib'], ['/lib64', 'usr/lib64']]) v.symlink(t, l);
+  v.mkdir('/usr/lib64', { mode: 0o755 });
+  v.chown('/var/spool/cron/crontabs', 0, 104);
+  v.chown('/var/mail', 0, 8);
 
-  // ---- accounts: /etc/passwd, group, shadow, gshadow
-  const passwd = SYSTEM_USERS.map(([n, uid, gid, gecos, home, shell]) => `${n}:x:${uid}:${gid}:${gecos}:${home}:${shell}`).join('\n') + '\n';
-  const group = SYSTEM_GROUPS.map(([n, gid]) => `${n}:x:${gid}:`).join('\n') + '\n';
-  put(sys, '/etc/passwd', passwd, 0o644);
-  put(sys, '/etc/group', group, 0o644);
-  const lc = String(Math.floor(installAt / 86400000));
-  const shadow = SYSTEM_USERS.map(([n, , , , , shell]) => `${n}:${n === 'root' ? '!' : shell.endsWith('nologin') || shell === '/bin/false' || shell === '/bin/sync' ? '*' : '!'}:${lc}:0:99999:7:::`).join('\n') + '\n';
-  put(sys, '/etc/shadow', shadow, 0o640, 0, 42);
-  put(sys, '/etc/gshadow', SYSTEM_GROUPS.map(([n]) => `${n}:*::`).join('\n') + '\n', 0o640, 0, 42);
-  put(sys, '/etc/subuid', 'student:100000:65536\n'); put(sys, '/etc/subgid', 'student:100000:65536\n');
+  // --- accounts
+  const gnames = new Map(SYSTEM_GROUPS.map(([n, g]) => [n, g]));
+  const gmembers = { adm: ['syslog'], dialout: [], www_data: [] };
+  v.writeFile('/etc/group', SYSTEM_GROUPS.map(([n, g]) => `${n}:x:${g}:${(gmembers[n] || []).join(',')}`).join('\n') + '\n', { mode: 0o644 });
+  v.writeFile('/etc/gshadow', SYSTEM_GROUPS.map(([n]) => `${n}:!::${(gmembers[n] || []).join(',')}`).join('\n') + '\n', { mode: 0o640, gid: 42 });
+  v.writeFile('/etc/passwd', SYSTEM_USERS.map(([n, u, g, gecos, h, sh]) => `${n}:x:${u}:${g}:${gecos}:${h}:${sh}`).join('\n') + '\n', { mode: 0o644 });
+  const day = daysSinceEpoch(installed);
+  v.writeFile('/etc/shadow', SYSTEM_USERS.map(([n]) => `${n}:${n === 'root' ? '!' : '*'}:${day}:0:99999:7:::`).join('\n') + '\n', { mode: 0o640, gid: 42 });
+  void gnames;
 
-  // ---- /etc content that is not owned by a package
-  put(sys, '/etc/os-release', C.OS_RELEASE); v.symlink('../etc/os-release', '/usr/lib/os-release');
-  put(sys, '/etc/lsb-release', C.LSB_RELEASE);
-  put(sys, '/etc/issue', 'Linux Mint 21.3 \\n \\l\n\n'); put(sys, '/etc/issue.net', 'Linux Mint 21.3\n');
-  put(sys, '/etc/linuxmint/info', 'RELEASE=21.3\nCODENAME=virginia\nEDITION="Cinnamon"\nDESCRIPTION="Linux Mint 21.3 Virginia"\nDESKTOP=Gtk\nTOOLKIT=GTK\nNEW_FEATURES_URL=https://www.linuxmint.com/rel_virginia_cinnamon.php\nRELEASE_NOTES_URL=https://www.linuxmint.com/rel_virginia_cinnamon.php\nUSER_GUIDE_URL=help:linuxmint\nGRUB_TITLE=Linux Mint 21.3 Cinnamon\n');
-  put(sys, '/etc/hostname', hostname + '\n'); put(sys, '/etc/hosts', C.HOSTS(hostname));
-  put(sys, '/etc/fstab', C.FSTAB); put(sys, '/etc/shells', C.SHELLS); put(sys, '/etc/nsswitch.conf', C.NSSWITCH);
-  put(sys, '/etc/login.defs', C.LOGIN_DEFS);
-  put(sys, '/etc/crontab', C.CRONTAB);
-  put(sys, '/etc/bash.bashrc', C.BASH_BASHRC); put(sys, '/etc/gai.conf', C.GAI_CONF);
-  put(sys, '/etc/profile', 'if [ "${PS1-}" ]; then\n  if [ "${BASH-}" ] && [ "$BASH" != "/bin/sh" ]; then\n    if [ -f /etc/bash.bashrc ]; then\n      . /etc/bash.bashrc\n    fi\n  fi\nfi\n');
-  put(sys, '/etc/resolv.conf', 'nameserver 127.0.0.53\noptions edns0 trust-ad\nsearch .\n');
-  put(sys, '/etc/timezone', 'America/New_York\n'); put(sys, '/etc/machine-id', 'b1c47dd5a3f94c1e8d0a6f5c2e7b9a13\n');
-  put(sys, '/etc/security/limits.conf', C.LIMITS_CONF); put(sys, '/etc/security/pwquality.conf', C.PWQUALITY_CONF); put(sys, '/etc/security/faillock.conf', C.FAILLOCK_CONF);
-  put(sys, '/etc/security/opasswd', '', 0o600);
-  put(sys, '/etc/sysctl.conf', C.SYSCTL_CONF); put(sys, '/etc/sysctl.d/10-network-security.conf', C.SYSCTL_NETWORK_SECURITY);
-  put(sys, '/etc/apt/apt.conf.d/10periodic', C.APT_PERIODIC);
-  put(sys, '/etc/apt/sources.list', '# This file is intentionally empty. See /etc/apt/sources.list.d/\n');
-  put(sys, '/etc/apt/sources.list.d/official-package-repositories.list', C.SOURCES_LIST);
-  put(sys, '/etc/sudoers.d/README', '#\n# As of Debian version 1.7.2p1-1, this directory is no longer used for local changes.\n#\n', 0o440);
-  for (const [f, text] of [['common-auth', C.COMMON_AUTH], ['common-password', C.COMMON_PASSWORD], ['common-account', C.COMMON_ACCOUNT], ['common-session', C.COMMON_SESSION], ['sudo', C.PAM_SUDO], ['su', C.PAM_SU]]) put(sys, `/etc/pam.d/${f}`, text);
-  put(sys, '/etc/pam.d/login', 'auth       optional   pam_faildelay.so  delay=3000000\nauth       requisite  pam_nologin.so\n@include common-auth\n@include common-account\n@include common-session\n@include common-password\n');
-  put(sys, '/etc/pam.d/sshd', '@include common-auth\naccount    required     pam_nologin.so\n@include common-account\nsession [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so close\n@include common-session\n@include common-password\n');
-  put(sys, '/etc/pam.d/lightdm', 'auth    requisite       pam_nologin.so\nauth    sufficient      pam_succeed_if.so user ingroup nopasswdlogin\n@include common-auth\naccount required pam_access.so\n@include common-account\n@include common-session\n@include common-password\n');
-  put(sys, '/etc/skel/.bashrc', C.BASHRC, 0o644); put(sys, '/etc/skel/.profile', C.PROFILE, 0o644); put(sys, '/etc/skel/.bash_logout', C.BASH_LOGOUT, 0o644);
-  put(sys, '/usr/share/backgrounds/linuxmint/default_background.jpg', '\xff\xd8\xff[simulated image]\n', 0o644);
-  put(sys, '/boot/vmlinuz-' + KERNEL, '[simulated kernel]\n', 0o644); put(sys, '/boot/initrd.img-' + KERNEL, '[simulated initrd]\n', 0o644);
-  put(sys, '/etc/localtime', 'TZif2\n'); put(sys, '/etc/mtab', 'rootfs / ext4 rw 0 0\n');
-  put(sys, '/etc/mime.types', 'text/plain\ttxt text conf def list log in ini\n'); put(sys, '/etc/environment', 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"\n');
+  // --- skeleton + core config files (before any user home is created)
+  seedFile(sys, '/etc/skel/.bashrc', C.BASHRC);
+  seedFile(sys, '/etc/skel/.profile', C.PROFILE);
+  seedFile(sys, '/etc/skel/.bash_logout', C.BASH_LOGOUT);
+  seedFile(sys, '/root/.bashrc', C.BASHRC, { mode: 0o644 });
+  seedFile(sys, '/root/.profile', C.PROFILE, { mode: 0o644 });
 
-  // ---- installed packages (base + filler) in catalog order
-  for (const p of Object.values(PACKAGES)) if (p.installed) pk.installPackage(sys, p.name, { boot: true });
+  // --- packages (files + default configuration + .desktop launchers)
+  for (const d of Object.values(PACKAGES)) if (d.installed) pk.installPackage(sys, d.name, { boot: true, auto: !!d.auto });
 
-  // ---- processes + services (everything below happened at boot, not at install time)
-  clock = bootAt;
-  seedProcesses(sys);
-  sys.nextPid = 400;
-  const boot = ['systemd-resolved', 'rsyslog', 'dbus', 'polkit', 'accounts-daemon', 'apparmor', 'udisks2', 'NetworkManager', 'wpa_supplicant', 'bluetooth', 'ModemManager', 'avahi-daemon', 'cups', 'cups-browsed', 'cron', 'ssh', 'ufw', 'lightdm'];
-  for (const name of boot) {
-    const d = SERVICES[name];
-    if (!d) continue;
-    const pkgOk = d.package === 'systemd' || pk.isInstalled(sys, d.package);
-    if (!pkgOk) continue;
-    if (!v.exists(`/lib/systemd/system/${d.unit}`)) put(sys, `/lib/systemd/system/${d.unit}`, pk.unitFileText(d));
-    sv.registerUnit(sys, name, { start: true });
+  // --- Cinnamon / Mint launchers that are not tied to one catalog package
+  const extraApps = [
+    ['cinnamon-settings-users', 'Users and Groups', 'Add or remove users and groups', 'cinnamon-settings user', 'System;Settings;', 'system-users'],
+    ['cinnamon-session-properties', 'Startup Applications', 'Choose what applications to start when you log in', 'cinnamon-session-properties', 'System;Settings;', 'system-run'],
+    ['mintlightdm-settings', 'Login Window', 'Configure the login window', 'pkexec lightdm-settings', 'System;Settings;', 'preferences-system-login'],
+    ['system-config-printer', 'Print Settings', 'Configure printers', 'system-config-printer', 'System;Settings;', 'printer'],
+  ];
+  for (const [file, name, comment, exec, cats, icon] of extraApps) {
+    seedFile(sys, `/usr/share/applications/${file}.desktop`, `[Desktop Entry]\nName=${name}\nComment=${comment}\nExec=${exec}\nIcon=${icon}\nTerminal=false\nType=Application\nCategories=${cats}\n`);
   }
 
-  // ---- the logged-in desktop session
-  clock = bootAt + 12000;
-  const lightdm = sys.processes.find((p) => p.svc === 'lightdm');
-  sys.nextPid = 1288;
-  const sess = sys.spawn({ user: 'root', cmd: 'lightdm --session-child 12 19', comm: 'lightdm', ppid: lightdm?.pid ?? 1, tty: '?', stat: 'Sl' });
-  sys.nextPid = 1301;
-  const xorg = sys.spawn({ user: 'root', cmd: '/usr/lib/xorg/Xorg -core :0 -seat seat0 -auth /var/run/lightdm/root/:0 -nolisten tcp vt7 -novtswitch', comm: 'Xorg', ppid: lightdm?.pid ?? 1, tty: 'tty7', stat: 'Ssl+' });
-  void xorg;
-  sys.nextPid = 1342;
-  const sesn = sys.spawn({ user: 'student', cmd: 'cinnamon-session --session cinnamon', comm: 'cinnamon-sessio', ppid: sess.pid, stat: 'Ssl' });
-  for (const [cmd, comm, stat] of [['/usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation', 'dbus-daemon', 'Ss'], ['cinnamon --replace', 'cinnamon', 'Sl'], ['nemo-desktop', 'nemo-desktop', 'Sl'], ['/usr/libexec/csd-power', 'csd-power', 'Sl'], ['/usr/bin/pulseaudio --daemonize=no --log-target=journal', 'pulseaudio', 'S<sl'], ['nm-applet', 'nm-applet', 'Sl'], ['mintUpdate', 'mintUpdate', 'Sl'], ['/usr/bin/python3 /usr/bin/blueman-applet', 'blueman-applet', 'Sl']]) {
-    sys.spawn({ user: 'student', cmd, comm, ppid: sesn.pid, stat });
-  }
-  sys.nextPid = 2210;
-  const gt = sys.spawn({ user: 'student', cmd: 'gnome-terminal-server', comm: 'gnome-terminal-', ppid: 1, stat: 'Ssl' });
-  sys.nextPid = 2231;
-  sys.spawn({ user: 'student', cmd: '-bash', comm: 'bash', ppid: gt.pid, tty: 'pts/0', stat: 'Ss' });
+  // --- system configuration that is not owned by a package in the catalog
+  seedFile(sys, '/etc/hostname', hostname + '\n');
+  seedFile(sys, '/etc/hosts', C.HOSTS(hostname));
+  seedFile(sys, '/etc/os-release', C.OS_RELEASE);
+  v.symlink('../etc/os-release', '/usr/lib/os-release');
+  seedFile(sys, '/etc/lsb-release', C.LSB_RELEASE);
+  seedFile(sys, '/etc/issue', 'Linux Mint 21.3 \\n \\l\n\n');
+  seedFile(sys, '/etc/issue.net', 'Linux Mint 21.3\n');
+  seedFile(sys, '/etc/shells', C.SHELLS);
+  seedFile(sys, '/etc/fstab', C.FSTAB);
+  seedFile(sys, '/etc/nsswitch.conf', C.NSSWITCH);
+  seedFile(sys, '/etc/gai.conf', C.GAI_CONF);
+  seedFile(sys, '/etc/crontab', C.CRONTAB);
+  seedFile(sys, '/etc/login.defs', C.LOGIN_DEFS);
+  seedFile(sys, '/etc/bash.bashrc', C.BASH_BASHRC);
+  seedFile(sys, '/etc/machine-id', 'b4b0e1d0c5a14d0b9a3a2f6e7d8c9b01\n');
+  seedFile(sys, '/etc/timezone', 'America/New_York\n');
+  seedFile(sys, '/etc/resolv.conf', 'nameserver 127.0.0.53\noptions edns0 trust-ad\nsearch .\n');
+  seedFile(sys, '/etc/sysctl.conf', C.SYSCTL_CONF);
+  seedFile(sys, '/etc/sysctl.d/10-network-security.conf', C.SYSCTL_NETWORK_SECURITY);
+  seedFile(sys, '/etc/security/limits.conf', C.LIMITS_CONF);
+  seedFile(sys, '/etc/security/pwquality.conf', C.PWQUALITY_CONF);
+  seedFile(sys, '/etc/security/faillock.conf', C.FAILLOCK_CONF);
+  seedFile(sys, '/etc/security/opasswd', '', { mode: 0o600 });
+  seedFile(sys, '/etc/pam.d/common-auth', C.COMMON_AUTH);
+  seedFile(sys, '/etc/pam.d/common-password', C.COMMON_PASSWORD);
+  seedFile(sys, '/etc/pam.d/common-account', C.COMMON_ACCOUNT);
+  seedFile(sys, '/etc/pam.d/common-session', C.COMMON_SESSION);
+  seedFile(sys, '/etc/pam.d/sudo', C.PAM_SUDO);
+  seedFile(sys, '/etc/pam.d/su', C.PAM_SU);
+  seedFile(sys, '/etc/apt/apt.conf.d/10periodic', C.APT_PERIODIC);
+  seedFile(sys, '/etc/apt/sources.list.d/official-package-repositories.list', C.SOURCES_LIST);
+  seedFile(sys, '/etc/sudoers.d/README', '#\n# As of Debian version 1.7.2p1-1, the default /etc/sudoers file created on\n# installation of the package now includes the directive:\n#\n# \t#includedir /etc/sudoers.d\n#\n# This will cause sudo to read and parse any files in the /etc/sudoers.d\n# directory that do not end in \'~\' or contain a \'.\' character.\n#\n# Note that there must be at least one file in the sudoers.d directory (this\n# one will do), and all files in this directory should be mode 0440.\n#\n', { mode: 0o440 });
+  seedFile(sys, '/etc/cron.d/e2scrub_all', '30 3 * * 0 root test -e /run/systemd/system || SERVICE_MODE=1 /usr/lib/x86_64-linux-gnu/e2fsprogs/e2scrub_all_cron\n10 3 * * * root test -e /run/systemd/system || SERVICE_MODE=1 /sbin/e2scrub_all -A -r\n');
+  for (const n of ['apt-compat', 'dpkg', 'logrotate', 'man-db']) seedFile(sys, `/etc/cron.daily/${n}`, `#!/bin/sh\n# ${n} daily job\nexit 0\n`, { mode: 0o755 });
+  seedFile(sys, '/run/systemd/resolve/stub-resolv.conf', 'nameserver 127.0.0.53\n');
+  seedFile(sys, '/etc/ssh/ssh_config', 'Include /etc/ssh/ssh_config.d/*.conf\n\nHost *\n    SendEnv LANG LC_*\n    HashKnownHosts yes\n    GSSAPIAuthentication yes\n');
+  seedFile(sys, '/etc/ssh/ssh_host_ed25519_key.pub', 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN3kQ2yPq0o3m1b3Qk8XcJt0wq9Vf6gO6z4h8Y1v5pLa root@mint\n');
+  seedFile(sys, '/etc/ssh/ssh_host_ed25519_key', '-----BEGIN OPENSSH PRIVATE KEY-----\n(simulated)\n-----END OPENSSH PRIVATE KEY-----\n', { mode: 0o600 });
 
-  // ---- the student account and its home
-  clock = installAt;
-  users.userAdd(sys, { name: 'student', uid: 1000, gecos: 'Student,,,', password: studentPassword, groups: ['adm', 'cdrom', 'sudo', 'dip', 'plugdev', 'lpadmin', 'sambashare'] });
-  v.chmod('/home/student', 0o750);
+  // --- the student account (the competitor)
+  users.userAdd(sys, { name: 'student', gecos: 'Student,,,', password: 'student', groups: ['adm', 'cdrom', 'sudo', 'dip', 'plugdev', 'lpadmin', 'sambashare'] });
+  seedFile(sys, '/home/student/.config/user-dirs.dirs', 'XDG_DESKTOP_DIR="$HOME/Desktop"\nXDG_DOWNLOAD_DIR="$HOME/Downloads"\nXDG_TEMPLATES_DIR="$HOME/Templates"\nXDG_PUBLICSHARE_DIR="$HOME/Public"\nXDG_DOCUMENTS_DIR="$HOME/Documents"\nXDG_MUSIC_DIR="$HOME/Music"\nXDG_PICTURES_DIR="$HOME/Pictures"\nXDG_VIDEOS_DIR="$HOME/Videos"\n', { uid: 1000, gid: 1000 });
+
+  // --- services (everything enabled by default is also running)
+  sys.nextPid = 300;
+  for (const d of Object.values(PACKAGES)) if (d.installed) for (const s of d.svc) sv.registerUnit(sys, s, { start: false });
+  sv.registerUnit(sys, 'systemd-resolved', { start: false });
+  spawnBaseProcesses(sys);
+  sys.nextPid = 620;
+  for (const name of Object.keys(sys.svcState)) { try { sv.startUnit(sys, name); } catch { /* ignore */ } }
+  for (const p of sys.processes) if (p.svc) p.start = sys.bootTime + 20000;
+  spawnSession(sys);
+  sys.nextPid = 2100;
+
+  // --- logs
+  const stamp = (ms) => fmtSyslog(ms);
+  const log = (file, lines, mode = 0o640) => seedFile(sys, `/var/log/${file}`, lines.join('\n') + '\n', { mode, uid: 104, gid: 4 });
+  const b = sys.bootTime;
+  log('syslog', [
+    `${stamp(b)} ${hostname} kernel: [    0.000000] Linux version ${KERNEL} (buildd@lcy02-amd64-044)`,
+    `${stamp(b + 6000)} ${hostname} systemd[1]: Started Journal Service.`,
+    `${stamp(b + 21000)} ${hostname} systemd[1]: Started OpenBSD Secure Shell server.`,
+    `${stamp(b + 24000)} ${hostname} systemd[1]: Started Light Display Manager.`,
+    `${stamp(b + 41000)} ${hostname} lightdm: pam_unix(lightdm-greeter:session): session opened for user lightdm(uid=108) by (uid=0)`,
+  ]);
+  log('auth.log', [
+    `${stamp(b + 38000)} ${hostname} lightdm: pam_unix(lightdm:session): session opened for user student(uid=1000) by (uid=0)`,
+    `${stamp(b + 38100)} ${hostname} systemd-logind[540]: New session c1 of user student.`,
+  ]);
+  log('kern.log', [`${stamp(b)} ${hostname} kernel: [    0.000000] Command line: BOOT_IMAGE=/boot/vmlinuz-${KERNEL} ro quiet splash`]);
+  log('dpkg.log', []);
+  seedFile(sys, '/var/log/apt/history.log', '', { mode: 0o644 });
+  seedFile(sys, '/run/utmp', `student  tty7  :0  ${new Date(b + 41000).toISOString().slice(0, 16).replace('T', ' ')}\n`, { mode: 0o664 });
+  seedFile(sys, '/var/log/wtmp', `student  tty7  :0  ${new Date(b + 41000).toISOString().slice(0, 16).replace('T', ' ')}  still logged in\nreboot   system boot  ${KERNEL}  ${new Date(b).toISOString().slice(0, 16).replace('T', ' ')}  still running\n`, { mode: 0o664, gid: 43 });
+
+  // --- Firefox profile
+  const prof = '/home/student/.mozilla/firefox/k7m2x9qa.default-release';
+  seedFile(sys, '/home/student/.mozilla/firefox/profiles.ini', '[Profile0]\nName=default-release\nIsRelative=1\nPath=k7m2x9qa.default-release\nDefault=1\n\n[General]\nStartWithLastProfile=1\nVersion=2\n', { uid: 1000, gid: 1000 });
+  seedFile(sys, `${prof}/prefs.js`, '// Mozilla User Preferences\n\n// DO NOT EDIT THIS FILE.\n//\n// If you make changes to this file while the application is running,\n// the changes will be overwritten when the application exits.\n//\n// To change a preference value, you can either:\n// - modify it via the UI (e.g. via about:config in the browser); or\n// - set it within a user.js file in your profile.\n\nuser_pref("app.normandy.first_run", false);\nuser_pref("browser.startup.homepage", "https://www.linuxmint.com/start/virginia/");\n', { uid: 1000, gid: 1000 });
 
   mountVirtual(sys);
-  seedLogs(sys, installAt, bootAt);
-  clock = null;
-  sys._now = realNow;
-  sys.misc.image = { os: 'Linux Mint 21.3 Virginia', kernel: KERNEL, installAt, builtAt: t0 };
+  // reset noisy bookkeeping created while building
+  sys.dirty = false;
   return sys;
 }
+
+export { cmdlineOf, SERVICES };

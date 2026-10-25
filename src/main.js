@@ -1,147 +1,197 @@
-// Entry point: boots the scenario, restores saved progress, and builds the desktop.
-import { buildScenario } from './scenarios/mint-round1/index.js';
+// Boot the simulator: restore or build the machine, start scoring, show the desktop.
+import { h, clear } from './ui/dom.js';
+import { icon } from './ui/icons.js';
+import { WindowManager } from './ui/wm.js';
+import { UI } from './ui/dialogs.js';
+import { Desktop } from './ui/desktop.js';
 import { System } from './core/system.js';
-import { mountVirtual } from './images/mint21.js';
 import { ScoringEngine } from './core/scoring.js';
 import { cronEntries } from './core/cron.js';
-import * as users from './core/users.js';
-import { WindowManager } from './ui/wm.js';
-import { openTerminal } from './ui/terminal.js';
-import { openBrowser, openEditor, openFiles, openPlanned, parseDesktop } from './ui/apps.js';
-import { TOOLS, settingsApp } from './ui/admin-apps.js';
-import { icon, kindFor } from './ui/icons.js';
+import { rebootSystem, autostartListeners } from './core/boot.js';
+import { mountVirtual } from './images/mint21.js';
 import { FsView } from './core/vfs.js';
-import { scenario as SCENARIO } from './scenarios/mint-round1/index.js';
+import * as users from './core/users.js';
+import * as K from './core/checks.js';
+import scenario from './scenarios/mint-round1/index.js';
+import { loadApp } from './apps/registry.js';
+import { runExec } from './apps/launch.js';
+import { parseDesktop } from './ui/dom.js';
 
-const KEY = 'cpsim.mint-round1.v1';
-const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const SAVE_KEY = `cpsim.save.v1.${scenario.id}`;
+const SET_KEY = 'cpsim.settings.v1';
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
+};
 
-const app = { sys: null, engine: null, wm: null, delayMs: 0 };
-window.cpsim = app; // handy for the browser console while debugging
+const bootMsg = (t) => { const el = document.getElementById('boot-msg'); if (el) el.textContent = t; };
+const tick = () => new Promise((r) => setTimeout(r, 0));
 
-function load() {
-  try {
-    const raw = localStorage.getItem(KEY); if (!raw) return null;
-    const saved = JSON.parse(raw);
-    const sys = System.restore(saved.sys, {}); mountVirtual(sys);
-    return { sys, engine: saved.engine, delayMs: saved.delayMs ?? 0 };
-  } catch (e) { console.warn('could not restore saved image', e); return null; }
-}
-let saveTimer = null;
-function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify({ sys: app.sys.snapshot(), engine: app.engine.serialize(), delayMs: app.delayMs })); } catch (e) { console.warn('save failed', e); } }, 800); }
+async function main() {
+  const params = new URLSearchParams(location.search);
+  if (params.has('fresh')) { store.del(SAVE_KEY); }
+  const settings = { mode: 'instant', sound: true, welcomed: false, ...(store.get(SET_KEY) || {}) };
+  bootMsg('Loading virtual machine…'); await tick();
 
-function boot(fresh = false) {
-  const restored = fresh ? null : load();
-  if (restored) { app.sys = restored.sys; app.delayMs = restored.delayMs; } else { app.sys = buildScenario().sys; app.delayMs = 0; }
-  app.engine?.detach();
-  app.engine = new ScoringEngine(app.sys, SCENARIO, { delayMs: app.delayMs });
-  if (restored?.engine) app.engine.restore(restored.engine);
-  app.engine.attach({ onTick: () => app.sys.runCronTick(cronEntries(app.sys)) });
-  app.engine.on('gain', (e) => toast(`You Gained Points!`, `${e.title} (+${e.points})`)); // eslint-disable-line
-  app.engine.on('loss', (e) => toast('You Lost Points', `${e.title} (${e.points})`, true));
-  app.engine.on('penalty', (e) => toast('Penalty', `${e.title} (${e.points})`, true));
-  app.engine.on('update', () => { updateScore(); save(); });
-  app.sys.on('change', save);
-}
-
-function toast(head, body, bad = false) {
-  const t = document.createElement('div'); t.className = 'toast' + (bad ? ' bad' : ''); t.innerHTML = `<b>${esc(head)}</b><small>${esc(body)}</small>`; $('#toasts').appendChild(t);
-  setTimeout(() => t.remove(), 6000);
-  try { const a = new (window.AudioContext || window.webkitAudioContext)(); const o = a.createOscillator(); const g = a.createGain(); o.connect(g); g.connect(a.destination); o.frequency.value = bad ? 220 : 880; g.gain.setValueAtTime(0.06, a.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.4); o.start(); o.stop(a.currentTime + 0.4); } catch { /* no audio */ }
-}
-const dialog = (html, buttons = [['OK']]) => new Promise((res) => { const ov = $('#overlay'); ov.innerHTML = `<div class="dlg">${html}<div class="row"></div></div>`; const row = ov.querySelector('.row'); buttons.forEach(([label, val, cls]) => { const b = document.createElement('button'); b.className = 'btn ' + (cls || ''); b.textContent = label; b.onclick = () => { ov.classList.remove('open'); res(val ?? label); }; row.appendChild(b); }); ov.classList.add('open'); });
-
-// ------------------------------------------------------------------ launching
-app.launch = (name, args = [], ctx = {}) => {
-  const user = ctx.root ? 'root' : ctx.user || 'student';
-  const file = args.find((a) => a && !a.startsWith('-')); const abs = file && !/^(https?|file|sim):/.test(file) ? (file.startsWith('/') ? file : `${ctx.cwd || '/'}/${file}`) : file;
-  switch (name) {
-    case 'firefox': return openBrowser(app, app.wm, { url: file ? (/^(https?|file|sim):/.test(file) ? file : abs) : 'sim://scoring-report', user });
-    case 'xed': return openEditor(app, app.wm, { path: abs || null, user });
-    case 'nemo': return openFiles(app, app.wm, { path: abs, user });
-    case 'gnome-terminal': return openTerminal(app, app.wm, { user });
-    case 'cinnamon-settings': return app.wm.open({ title: 'System Settings', kind: 'settings', width: 520, height: 300, content: (w) => settingsApp(app, w, (x) => app.launch(x, [], ctx)) });
-    default: {
-      const t = TOOLS[name];
-      if (t) return app.wm.open({ title: t[0], kind: t[1], width: t[3], height: t[4], content: (w) => { w.user = user === 'root' ? 'student' : user; t[2](app, w); } });
-      return openPlanned(app, app.wm, appName(name));
-    }
+  let sys; let engineState = null; let restored = false;
+  const saved = store.get(SAVE_KEY);
+  if (saved && saved.sys) {
+    try { sys = System.restore(saved.sys); mountVirtual(sys); engineState = saved.engine; restored = true; } catch (e) { console.error('restore failed', e); sys = null; }
   }
-};
-const appName = (n) => ({ gufw: 'Firewall Configuration', mintupdate: 'Update Manager', mintinstall: 'Software Manager', 'gnome-system-monitor': 'System Monitor', 'cinnamon-settings': 'System Settings', 'users-admin': 'Users and Groups' }[n] || n);
-app.openPath = (p, user = 'student') => {
-  const fs = new FsView(app.sys.vfs, users.credFor(app.sys, user));
-  if (/\.desktop$/.test(p)) { try { app.runDesktop(parseDesktop(fs.readFile(p)).Exec || ''); } catch { /* unreadable */ } return; }
-  if (/\.html?$/.test(p)) return app.launch('firefox', [p], { user });
-  if (fs.isDir(p)) return app.launch('nemo', [p], { user });
-  return app.launch('xed', [p], { user, cwd: '/' });
-};
-app.runDesktop = (exec) => { const parts = exec.replace(/%[a-zA-Z]/g, '').trim().split(/\s+/); const cmd = parts[0]; if (!cmd) return; app.launch(cmd, parts.slice(1)); };
+  if (!sys) sys = scenario.createMachine({});
+  sys.dirty = false;
 
-// ------------------------------------------------------------------ desktop icons, panel, menu
-function desktopIcons() {
-  const d = $('#desktop'); d.querySelectorAll('.dicon').forEach((e) => e.remove());
-  const fs = new FsView(app.sys.vfs, users.credFor(app.sys, 'student'));
-  let names = []; try { names = fs.readdir('/home/student/Desktop').filter((n) => !n.startsWith('.')).sort(); } catch { /* missing */ }
-  const items = [{ n: 'Computer', k: 'monitor', act: () => app.launch('nemo', ['/']) }, { n: 'Home', k: 'folder', act: () => app.launch('nemo', ['/home/student']) }];
-  for (const n of names) { const p = `/home/student/Desktop/${n}`; let label = n; let k = 'file'; if (/\.desktop$/.test(n)) { try { const e = parseDesktop(fs.readFile(p)); label = e.Name || n; k = /Score/i.test(label) ? 'score' : /README/i.test(label) ? 'doc' : 'generic'; } catch { /* skip */ } } items.push({ n: label, k, act: () => app.openPath(p, 'student') }); }
-  items.forEach((it, i) => { const e = document.createElement('div'); e.className = 'dicon'; e.style.left = 12 + Math.floor(i / 6) * 96 + 'px'; e.style.top = 10 + (i % 6) * 92 + 'px'; e.innerHTML = `<img src="${icon(it.k)}"><span>${esc(it.n)}</span>`; e.onclick = (ev) => { d.querySelectorAll('.dicon.sel').forEach((x) => x.classList.remove('sel')); e.classList.add('sel'); ev.stopPropagation(); }; e.ondblclick = it.act; d.appendChild(e); });
-}
-function menuApps() {
-  const fs = new FsView(app.sys.vfs, users.credFor(app.sys, 'student')); const apps = [];
-  try { for (const n of fs.readdir('/usr/share/applications')) { if (!n.endsWith('.desktop')) continue; const e = parseDesktop(fs.readFile(`/usr/share/applications/${n}`)); if (e.NoDisplay === 'true') continue; apps.push({ name: e.Name || n, comment: e.Comment || '', exec: e.Exec || '', cat: (e.Categories || 'Other').split(';')[0] || 'Other' }); } } catch { /* none */ }
-  apps.push({ name: 'Users and Groups', comment: 'Manage user accounts', exec: 'users-admin', cat: 'System' }, { name: 'Login Window', comment: 'Change the login screen', exec: 'login-window', cat: 'System' }, { name: 'Startup Applications', comment: 'Choose what starts at login', exec: 'startup-apps', cat: 'System' }, { name: 'Terminal', comment: 'Use the command line', exec: 'gnome-terminal', cat: 'Accessories' }, { name: 'Files', comment: 'Browse your files', exec: 'nemo', cat: 'Accessories' });
-  return apps.sort((a, b) => a.name.localeCompare(b.name));
-}
-let menuCat = 'All';
-function renderMenu() {
-  const apps = menuApps(); const cats = ['All', ...new Set(apps.map((a) => a.cat))].sort((a, b) => (a === 'All' ? -1 : a.localeCompare(b)));
-  const m = $('#menu'); const q = (m.querySelector('input')?.value || '').toLowerCase();
-  m.innerHTML = `<div class="cats">${cats.map((c) => `<div class="cat ${c === menuCat ? 'on' : ''}" data-c="${esc(c)}">${esc(c)}</div>`).join('')}</div><div class="apps"><input placeholder="Search…" value="${esc(q)}" style="width:100%;padding:6px;margin-bottom:6px"><div class="list"></div></div><div class="foot"><button class="btn" data-a="term">Terminal</button><button class="btn" data-a="reset">Reset image…</button></div>`;
-  const list = m.querySelector('.list');
-  for (const a of apps.filter((x) => (menuCat === 'All' || x.cat === menuCat) && (!q || x.name.toLowerCase().includes(q)))) { const d = document.createElement('div'); d.className = 'app'; d.innerHTML = `<img src="${icon(kindFor(a.exec + a.name.toLowerCase()))}"><div>${esc(a.name)}<small>${esc(a.comment)}</small></div>`; d.onclick = () => { m.classList.remove('open'); app.runDesktop(a.exec); }; list.appendChild(d); }
-  m.querySelectorAll('.cat').forEach((c) => { c.onclick = () => { menuCat = c.dataset.c; renderMenu(); }; });
-  const inp = m.querySelector('input'); inp.oninput = () => { const v = inp.value; renderMenu(); const i2 = m.querySelector('input'); i2.value = v; i2.focus(); };
-  m.querySelector('[data-a=term]').onclick = () => { m.classList.remove('open'); app.launch('gnome-terminal'); };
-  m.querySelector('[data-a=reset]').onclick = resetImage;
-}
-async function resetImage() {
-  $('#menu').classList.remove('open'); $('#smenu').classList.remove('open');
-  if ((await dialog('<h3>Reset the image?</h3><p>This throws away all your changes and score and starts the scenario again.</p>', [['Cancel', false], ['Reset', true, 'primary']])) !== true) return;
-  localStorage.removeItem(KEY); location.reload();
-}
-function buildPanel() {
-  const p = $('#panel');
-  p.innerHTML = `<button class="menu-btn">Menu</button><button data-l="firefox" title="Firefox">🌐</button><button data-l="term" title="Terminal">&gt;_</button><button data-l="nemo" title="Files">📁</button><div class="tasks"></div><div class="score" title="Simulator score (hidden on a real CyberPatriot image)">Score <b id="sc">0</b></div><button class="clock"></button><button class="sim" title="Simulator options">⚙</button>
-  <div id="menu"></div><div class="pmenu" id="smenu"><div data-a="report">Open Scoring Report</div><div data-a="readme">Open README</div><hr><div data-a="delay">Scoring delay: <b id="dl"></b> (click to change)</div><div data-a="hide">Show/hide panel score</div><hr><div data-a="reset">Reset image…</div><div data-a="about">About this simulator</div></div>`;
-  p.querySelector('.menu-btn').onclick = (e) => { e.stopPropagation(); renderMenu(); $('#menu').classList.toggle('open'); $('#smenu').classList.remove('open'); };
-  p.querySelector('[data-l=firefox]').onclick = () => app.launch('firefox', ['/opt/CyberPatriot/README.html']);
-  p.querySelector('[data-l=term]').onclick = () => app.launch('gnome-terminal'); p.querySelector('[data-l=nemo]').onclick = () => app.launch('nemo');
-  p.querySelector('.sim').onclick = (e) => { e.stopPropagation(); $('#dl').textContent = app.delayMs ? `${app.delayMs / 1000}s` : 'instant'; $('#smenu').classList.toggle('open'); $('#menu').classList.remove('open'); };
-  $('#smenu').onclick = async (e) => {
-    const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return; $('#smenu').classList.remove('open');
-    if (a === 'report') app.launch('firefox', ['sim://scoring-report']); else if (a === 'readme') app.launch('firefox', ['/opt/CyberPatriot/README.html']);
-    else if (a === 'delay') { app.delayMs = app.delayMs === 0 ? 30000 : app.delayMs === 30000 ? 60000 : 0; app.engine.delayMs = app.delayMs; save(); toast('Scoring delay', app.delayMs ? `Fixes are credited after ${app.delayMs / 1000}s, like a real image` : 'Instant scoring'); }
-    else if (a === 'hide') $('#panel .score').style.display = $('#panel .score').style.display === 'none' ? '' : 'none';
-    else if (a === 'reset') resetImage();
-    else if (a === 'about') dialog('<h3>Mint Practice Image (unofficial)</h3><p>A browser-based practice environment inspired by CyberPatriot. Everything runs locally in your browser: the files, users, packages and services are all simulated.</p><p>Not affiliated with the Air &amp; Space Forces Association, CyberPatriot, Linux Mint or Mozilla.</p>');
+  const ui = new UI({ overlay: document.getElementById('overlay'), toasts: document.getElementById('toasts'), sys });
+  ui.soundOn = settings.sound;
+  const wm = new WindowManager(document.getElementById('winlayer'));
+  const engine = new ScoringEngine(sys, scenario, engineState);
+  engine.setMode(settings.mode);
+
+  const env = {
+    sys, engine, scenario, wm, ui, settings, user: scenario.user, desktop: null, params,
+    saveSettings() { store.set(SET_KEY, settings); },
+    userFs() { return new FsView(sys.vfs, users.credFor(sys, env.user)); },
+    async openApp(id, opts = {}) {
+      try { const open = await loadApp(id); return open(env, { ...opts, app: id }); } catch (e) { console.error(e); ui.alert({ title: 'Error', heading: 'The application failed to start', message: String(e.message || e), icon: 'error' }); return null; }
+    },
+    openPath(path, opts = {}) {
+      const fs = env.userFs();
+      try {
+        if (fs.isDir(path)) return env.openApp('nemo', { path });
+        if (/\.desktop$/.test(path)) { const d = parseDesktop(fs.readFile(path)); return runExec(env, d.Exec || '', { cwd: path.slice(0, path.lastIndexOf('/')) }); }
+        if (/\.html?$/i.test(path)) return env.openApp('firefox', { args: ['file://' + path] });
+        if (/\.(mp3|ogg|wav|flac|mp4|mkv|avi|png|jpe?g|gif)$/i.test(path)) return env.openApp('generic', { title: path.split('/').pop(), icon: /\.(mp3|ogg|wav|flac)$/i.test(path) ? 'music' : /\.(mp4|mkv|avi)$/i.test(path) ? 'video' : 'image' });
+        return env.openApp('xed', { args: [path], ...opts });
+      } catch (e) { ui.alert({ title: 'Error', heading: `Could not open “${path.split('/').pop()}”`, message: e.text || e.message, icon: 'error' }); return null; }
+    },
+    hint() {
+      env.engine.evaluate();
+      const r = engine.report();
+      const left = Object.entries(r.categories).map(([n, c]) => [n, c.total - c.found]).filter(([, n]) => n > 0);
+      if (!left.length) { ui.toast({ title: 'Hint', message: 'Everything has been found. Nice work!', kind: 'info' }); return; }
+      ui.alert({ title: 'Hint', heading: `${r.totalCount - r.foundCount} vulnerabilities left`, message: left.map(([n, c]) => `${n}: ${c}`).join('\n') + '\n\nRe-read the Scenario README, then audit users, services, software, files and configuration files.', icon: 'info' });
+    },
+    async reset() {
+      const ok = await ui.confirm({ title: 'Reset image', heading: 'Start over from a fresh image?', message: 'All of your changes and your score will be erased.', ok: 'Reset', danger: true });
+      if (!ok) return;
+      store.del(SAVE_KEY); location.href = location.pathname + '?fresh=1';
+    },
+    lock() { showLock(env); },
+    logout() { showGreeter(env); },
+    async power(kind) {
+      const label = kind === 'reboot' ? 'Restart' : 'Shut down';
+      if (kind === 'poweroff') {
+        const ok = await ui.confirm({ title: 'Quit', heading: 'Shut down this simulated computer?', message: 'The image state is saved. You can resume later by reloading this page.', ok: label });
+        if (!ok) return;
+        save(); document.body.innerHTML = '<div style="color:#bbb;font:16px sans-serif;display:flex;height:100vh;align-items:center;justify-content:center;background:#000">System powered off. Reload this page to start it again.</div>'; return;
+      }
+      showBoot(env, 'Restarting…', () => { rebootSystem(sys); engine.evaluate(); startAutostart(env); env.wm.wins.slice().forEach((w) => w.close()); env.desktop.renderIcons(); });
+    },
   };
-  document.addEventListener('click', () => { $('#menu').classList.remove('open'); $('#smenu').classList.remove('open'); });
-  $('#menu').addEventListener('click', (e) => e.stopPropagation());
-  const tick = () => { const d = new Date(); p.querySelector('.clock').textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }; tick(); setInterval(tick, 20000);
-}
-function updateScore() { const el = $('#sc'); if (el) el.textContent = `${app.engine.score} / ${app.engine.maxScore}`; }
-function renderTasks() {
-  const t = $('#panel .tasks'); if (!t) return; t.innerHTML = '';
-  for (const w of app.wm.list()) { const b = document.createElement('button'); b.className = 'task' + (app.wm.active === w ? ' active' : ''); b.innerHTML = `<img src="${icon(w.kind)}" width="16" height="16" style="vertical-align:-3px"> ${esc(w.title)}`; b.onclick = () => (app.wm.active === w && !w.min ? app.wm.minimize(w) : app.wm.focus(w)); t.appendChild(b); }
+  window.cpsim = env;
+  env.desktop = new Desktop(env);
+
+  // ---- scoring notifications
+  engine.on('score', ({ gained, lost, penalized, cleared }) => {
+    for (const v of gained) { ui.toast({ title: `You gained ${v.points} point${v.points === 1 ? '' : 's'}!`, message: v.title, kind: 'good' }); ui.ding('good'); }
+    for (const v of lost) { ui.toast({ title: `You lost ${v.points} point${v.points === 1 ? '' : 's'}!`, message: `${v.title} (no longer fixed)`, kind: 'bad' }); ui.ding('bad'); }
+    for (const p of penalized) { ui.toast({ title: `You lost ${p.points} points!`, message: p.title, kind: 'bad' }); ui.ding('bad'); }
+    void cleared;
+    env.desktop.scoreTi.title = `Score: ${engine.score()} / ${engine.maxScore()}`;
+  });
+  engine.start();
+
+  // ---- background machine behaviour
+  setInterval(() => { if (sys.runCronTick(cronEntries(sys))) engine.evaluate(); }, 20000);
+  setInterval(() => save(), 4000);
+  window.addEventListener('beforeunload', () => save());
+  function save() {
+    if (!sys.dirty && !env._savedOnce) { env._savedOnce = true; }
+    store.set(SAVE_KEY, { v: 1, sys: sys.snapshot(), engine: engine.serialize(), at: Date.now() });
+    sys.dirty = false;
+  }
+  env.save = save;
+  startAutostart(env);
+
+  document.getElementById('boot').classList.add('hide');
+  setTimeout(() => document.getElementById('boot')?.remove(), 700);
+  if (!settings.welcomed && !restored) {
+    settings.welcomed = true; env.saveSettings();
+    showWelcome(env);
+  }
 }
 
-boot();
-app.wm = new WindowManager($('#desktop'), renderTasks);
-buildPanel(); updateScore(); desktopIcons();
-app.sys.on('change', () => { clearTimeout(app._di); app._di = setTimeout(desktopIcons, 400); });
-$('#desktop').addEventListener('mousedown', (e) => { if (e.target.id === 'desktop') $('#desktop').querySelectorAll('.dicon.sel').forEach((x) => x.classList.remove('sel')); });
-app.motd = '';
-openTerminal(app, app.wm, { user: 'student' });
-setTimeout(() => toast('Welcome', 'Double-click README on the desktop to start. Your score is shown in the panel.'), 600);
+function startAutostart(env) {
+  for (const l of autostartListeners(env.sys, env.user)) {
+    setTimeout(() => {
+      if (!env.sys.vfs.exists(l.source)) return;
+      if (env.sys.sockets().some((s) => s.port === l.port)) return;
+      env.sys.spawn({ user: env.user, cmd: l.cmd, comm: 'nc.traditional', stat: 'S', listen: [{ proto: 'tcp', addr: '0.0.0.0', port: l.port }] });
+      env.engine.evaluate();
+    }, Math.max(l.delayMs, 1000));
+  }
+}
+
+function showBoot(env, text, then) {
+  const b = h('div', { id: 'boot' }, h('div', { style: { fontSize: '15px' } }, text), h('div', { class: 'bar' }, h('i')));
+  document.getElementById('screen').append(b);
+  setTimeout(() => { then(); b.classList.add('hide'); setTimeout(() => b.remove(), 600); }, 1800);
+}
+
+function showWelcome(env) {
+  const { ui } = env;
+  ui.modal((done) => h('div', { class: 'dlg', style: { maxWidth: '560px' } },
+    h('div', { class: 'dt' }, 'Welcome'),
+    h('div', { class: 'db' }, icon('shield', 56), h('div', { class: 'txt' },
+      h('h3', null, `${env.scenario.title} — ${env.scenario.imageName}`),
+      h('p', null, 'This is a practice simulator for CyberPatriot-style Linux hardening. Everything runs in your browser: the desktop, the terminal and the scoring.'),
+      h('p', null, 'Start by opening the “Scenario README” on the desktop, then secure the computer. Open the “Scoring Report” to see your points. You can answer the three Forensics Questions by editing the files on the desktop.'),
+      h('p', null, h('b', null, 'Your login: '), `${env.scenario.user} / ${env.scenario.password}`),
+      h('p', { style: { fontSize: '12px', color: '#6c7378' } }, 'Progress is saved in this browser. Use the chart icon in the panel for hints, scoring speed and reset.'))),
+    h('div', { class: 'df' }, h('button', { class: 'btn primary', onclick: () => { done(true); env.openApp('firefox', { args: ['file:///opt/cpsim/README.html'] }); } }, 'Open the README'), h('button', { class: 'btn', onclick: () => done(true) }, 'Start')),
+  ));
+}
+
+function showLock(env) {
+  const user = env.user;
+  const u = users.getUser(env.sys, user);
+  const err = h('div', { class: 'err', style: { minHeight: '16px', color: '#ff9a94', fontSize: '12px' } });
+  const pw = h('input', { class: 'in', type: 'password', placeholder: 'Password', style: { width: '240px' }, onkeydown: (e) => { if (e.key === 'Enter') { if (users.checkPassword(env.sys, user, pw.value)) lock.remove(); else { err.textContent = 'Incorrect password, please try again'; pw.value = ''; } } } });
+  const lock = h('div', { style: { position: 'absolute', inset: 0, zIndex: 9950, background: 'radial-gradient(900px 600px at 50% 30%, #3a6a60, #12262c)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '10px', color: '#fff' } },
+    icon('users', 80), h('div', { style: { fontSize: '20px' } }, (u.gecos || '').split(',')[0] || user), pw, err, h('div', { style: { fontSize: '12px', opacity: .7 } }, 'Screen locked'));
+  document.getElementById('screen').append(lock);
+  setTimeout(() => pw.focus(), 30);
+}
+
+function showGreeter(env) {
+  const { sys } = env;
+  env.wm.wins.slice().forEach((w) => w.close());
+  const list = users.readPasswd(sys).filter((u) => u.uid >= 1000 && u.uid < 65534 && !/nologin|false/.test(u.shell));
+  let chosen = list.find((u) => u.name === env.user) || list[0];
+  const err = h('div', { style: { minHeight: '16px', color: '#ff9a94', fontSize: '12px' } });
+  const pw = h('input', { class: 'in', type: 'password', placeholder: 'Password', style: { width: '240px' }, onkeydown: (e) => { if (e.key === 'Enter') go(); } });
+  const box = h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' } });
+  const guest = K.guestAllowed(sys);
+  const render = () => {
+    clear(box);
+    box.append(icon('users', 80), h('div', { style: { fontSize: '20px' } }, (chosen.gecos || '').split(',')[0] || chosen.name), pw, err, h('div', { style: { display: 'flex', gap: '8px' } }, h('button', { class: 'btn primary', onclick: go }, 'Log In')));
+  };
+  const go = () => {
+    const st = users.getShadow(sys, chosen.name);
+    if (users.checkPassword(sys, chosen.name, pw.value)) {
+      sys.log('auth.log', 'lightdm', `pam_unix(lightdm:session): session opened for user ${chosen.name}(uid=${chosen.uid}) by (uid=0)`);
+      env.user = chosen.name; g.remove(); env.desktop.renderIcons(); env.desktop.menuDirty = true; startAutostart(env);
+    } else { err.textContent = st && st.hash.startsWith('!') ? 'Account is locked' : 'Incorrect password, please try again'; pw.value = ''; sys.log('auth.log', 'lightdm', `pam_unix(lightdm:auth): authentication failure; logname= uid=0 euid=0 tty=:0 ruser= rhost=  user=${chosen.name}`); }
+  };
+  const side = h('div', { style: { position: 'absolute', left: '24px', top: '24px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' } },
+    h('div', { style: { opacity: .7, marginBottom: '4px' } }, 'Users'),
+    ...list.map((u) => h('div', { style: { padding: '5px 10px', borderRadius: '4px', cursor: 'default', background: 'rgba(255,255,255,.12)' }, onclick: () => { chosen = u; pw.value = ''; err.textContent = ''; render(); pw.focus(); } }, u.name)),
+    guest ? h('div', { style: { padding: '5px 10px', borderRadius: '4px', background: 'rgba(255,255,255,.12)' }, onclick: () => { err.textContent = 'Guest sessions are not simulated, but the guest login is enabled on this computer.'; } }, 'Guest Session') : null);
+  const g = h('div', { style: { position: 'absolute', inset: 0, zIndex: 9950, background: 'radial-gradient(900px 600px at 50% 30%, #3a6a60, #12262c)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' } }, side, box);
+  document.getElementById('screen').append(g);
+  render();
+  setTimeout(() => pw.focus(), 30);
+}
+
+main().catch((e) => { console.error(e); document.getElementById('boot-msg').textContent = 'Failed to start: ' + e.message; });

@@ -1,541 +1,623 @@
-// The shell: expansion, pipelines, redirections, control flow, builtins and command dispatch.
-// DOM-free. The UI (or a test) supplies an `io` object: { write, prompt, editor, launch, clear, exit }.
-import { parse, ParseError, tokenize } from './parser.js';
-import { CmdError } from '../core/errors.js';
-import { FsError, FsView } from '../core/vfs.js';
-import { globToRegex, posix } from '../core/util.js';
+// The simulated bash. One Shell per terminal window. A "frame" is a login/su/sudo -i level
+// (user, cwd, environment); `exit` pops a frame and closes the terminal when none are left.
+import { posix, globToRegex } from '../core/util.js';
 import * as users from '../core/users.js';
+import * as pk from '../core/packages.js';
+import { FsView, FsError } from '../core/vfs.js';
+import { CmdError } from '../core/errors.js';
 import { PACKAGES } from '../images/catalog.js';
-import { REGISTRY } from './registry.js';
+import { parse, ParseError } from './parser.js';
+import { commands } from './registry.js';
 
-export class ExitSignal { constructor(code) { this.code = code; } }
-class BreakSignal { constructor(n = 1) { this.n = n; } }
-class ContinueSignal { constructor(n = 1) { this.n = n; } }
+const PATH_DIRS = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin', '/usr/games', '/usr/local/games'];
+export const DEFAULT_PATH = PATH_DIRS.join(':');
+const ROOT_CRED = { name: 'root', uid: 0, gid: 0, gids: [0] };
+const MAGIC = /(?<!\\)[*?[]/;
 
-/** Where a command's stdout/stderr goes. */
-export class Sink {
-  constructor(fn = null) { this.chunks = []; this.fn = fn; }
-  write(s) { if (s === '' || s == null) return; if (this.fn) this.fn(String(s)); else this.chunks.push(String(s)); }
-  get text() { return this.chunks.join(''); }
+export function nullIo() {
+  return { write() {}, async readLine() { return null; }, async editor() {}, launch() {}, clear() {}, exit() {}, cols: 80, rows: 24 };
 }
-const NULL_SINK = new Sink(() => {});
 
-const pad = (s, n) => String(s).padEnd(n);
-void pad;
+let binMap = null;
+function packageForCommand(name) {
+  if (!binMap) {
+    binMap = new Map();
+    for (const d of Object.values(PACKAGES)) for (const b of d.bins || []) { const n = b.split('/').pop(); if (!binMap.has(n)) binMap.set(n, d.name); }
+  }
+  return binMap.get(name) || (PACKAGES[name] ? name : null);
+}
 
 export class Shell {
-  /**
-   * @param sys System
-   * @param io {write(text), prompt(text,{silent}), editor(opts), launch(app,args), clear(), exit()}
-   */
-  constructor(sys, io, { user = 'student', env = {}, cols = 80 } = {}) {
+  constructor(sys, { user = 'student', io = nullIo(), login = true } = {}) {
     this.sys = sys;
     this.io = io;
-    this.cols = cols;
-    this.frames = [];                // su / sudo -s nesting: {user, cwd, vars}
     this.history = [];
     this.aliases = new Map();
     this.vars = new Map();
-    this.exported = new Set();
+    this.frames = [];
+    this.status = 0;
+    this.abort = false;
     this.positional = [];
-    this.scriptName = 'bash';
-    this.lastStatus = 0;
-    this.pid = 2231 + Math.floor(Math.random() * 40);
-    this.sudoLecture = true;
-    this.login(user, { fresh: true, env });
-  }
-
-  // ------------------------------------------------------------ identity & environment
-  get user() { return this.euser; }
-  get cred() {
-    const key = `${this.euser}:${this.sys.counters.touches}`;
-    if (this._credKey !== key) { this._credKey = key; this._cred = users.credFor(this.sys, this.euser); }
-    return this._cred;
-  }
-
-  login(name, { fresh = false, env = {}, cwd } = {}) {
-    const u = users.getUser(this.sys, name);
-    const home = u ? u.home : '/';
-    this.euser = name;
-    this.vars = new Map();
-    this.exported = new Set();
-    const base = { USER: name, LOGNAME: name, HOME: home, SHELL: u?.shell || '/bin/bash', PWD: cwd || home, LANG: 'en_US.UTF-8', TERM: 'xterm-256color', PATH: name === 'root' ? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' : '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games', HOSTNAME: this.sys.hostname, COLUMNS: String(this.cols), LINES: '24', PS1: '', ...env };
-    for (const [k, v] of Object.entries(base)) { this.vars.set(k, v); this.exported.add(k); }
-    this.cwd = this.sys.vfs.isDir(cwd || home) ? (cwd || home) : '/';
-    this.vars.set('PWD', this.cwd);
-    this.vars.set('OLDPWD', this.cwd);
+    this.pid = sys.nextPid++;
+    this.depth = 0;
+    this.pushFrame(user, { login });
     this.loadAliases();
-    void fresh;
+    this.loadHistory();
   }
 
-  loadAliases() {
-    this.aliases = new Map();
-    const u = users.getUser(this.sys, this.euser);
-    const rc = u && this.sys.vfs.isFile(`${u.home}/.bashrc`) ? this.sys.vfs.readFile(`${u.home}/.bashrc`) : '';
-    for (const l of rc.split('\n')) {
-      const m = /^\s*alias\s+([\w.-]+)=(?:'([^']*)'|"([^"]*)")\s*$/.exec(l);
-      if (m) this.aliases.set(m[1], m[2] ?? m[3]);
-    }
-  }
+  // ---------------------------------------------------------------- frames / environment
+  get frame() { return this.frames[this.frames.length - 1]; }
+  get user() { return this.frame.user; }
+  get cwd() { return this.frame.cwd; }
+  set cwd(v) { this.frame.cwd = v; }
+  get env() { return this.frame.env; }
 
-  /** Push a new login identity (su, sudo -i). */
-  pushUser(name, { login = true, keepEnv = false } = {}) {
-    this.frames.push({ user: this.euser, cwd: this.cwd, vars: this.vars, exported: this.exported, aliases: this.aliases });
-    const u = users.getUser(this.sys, name);
-    if (login) this.login(name);
-    else { this.euser = name; this.setVar('USER', name, true); if (!keepEnv) this.setVar('HOME', u?.home || '/', true); }
+  credOf(user) { return user === 'root' ? ROOT_CRED : users.credFor(this.sys, user); }
+
+  pushFrame(user, { cwd, login = false, keepEnv = null } = {}) {
+    const u = users.getUser(this.sys, user);
+    const home = u?.home || '/';
+    const env = {
+      USER: user, LOGNAME: user, HOME: home, SHELL: u?.shell || '/bin/bash', PATH: DEFAULT_PATH, LANG: 'en_US.UTF-8', TERM: 'xterm-256color',
+      DISPLAY: ':0', XDG_SESSION_TYPE: 'x11', DESKTOP_SESSION: 'cinnamon', XDG_CURRENT_DESKTOP: 'X-Cinnamon', HOSTNAME: this.sys.hostname,
+      ...(keepEnv || {}),
+    };
+    if (keepEnv) { env.USER = user; env.LOGNAME = user; env.HOME = home; }
+    const fr = { user, cwd: cwd ?? (this.sys.vfs.isDir(home) ? home : '/'), env, login };
+    env.PWD = fr.cwd;
+    this.frames.push(fr);
+    return fr;
   }
-  popUser() {
-    const f = this.frames.pop();
-    if (!f) return false;
-    this.euser = f.user; this.cwd = f.cwd; this.vars = f.vars; this.exported = f.exported; this.aliases = f.aliases;
-    return true;
+  popFrame() { if (this.frames.length > 1) { this.frames.pop(); return true; } return false; }
+
+  fsFor(user) { return new FsView(this.sys.vfs, this.credOf(user)); }
+  resolve(p, cwd = this.cwd) { return posix.normalize(p, cwd); }
+
+  setCwd(path) {
+    const old = this.cwd;
+    this.frame.cwd = path;
+    this.env.OLDPWD = old;
+    this.env.PWD = path;
   }
 
   getVar(name) {
-    if (name === '?') return String(this.lastStatus);
-    if (name === '$') return String(this.pid);
-    if (name === '#') return String(this.positional.length);
-    if (name === '0') return this.scriptName;
-    if (/^[1-9]$/.test(name)) return this.positional[Number(name) - 1] ?? '';
-    if (name === '@' || name === '*') return this.positional.join(' ');
-    if (name === 'RANDOM') return String(Math.floor(this.sys.rng() * 32768));
-    if (name === 'UID' || name === 'EUID') return String(users.getUser(this.sys, this.euser)?.uid ?? 0);
-    return this.vars.get(name) ?? '';
-  }
-  setVar(name, value, exp = false) { this.vars.set(name, String(value)); if (exp) this.exported.add(name); if (name === 'PWD') this.cwd = value; }
-  get env() { const o = {}; for (const k of this.exported) o[k] = this.vars.get(k) ?? ''; return o; }
-  home() { return this.vars.get('HOME') || '/'; }
-
-  /** Absolute path for `p` relative to cwd (a leading ~ is expanded here too). */
-  abs(p, cwd = this.cwd) {
-    if (p === '~' || p.startsWith('~/')) p = this.home() + p.slice(1);
-    return posix.normalize(p, cwd);
-  }
-
-  prompt() {
-    const home = this.home();
-    let dir = this.cwd;
-    if (dir === home) dir = '~'; else if (home !== '/' && dir.startsWith(home + '/')) dir = '~' + dir.slice(home.length);
-    const sym = this.euser === 'root' ? '#' : '$';
-    return `\u001b[01;32m${this.euser}@${this.sys.hostname}\u001b[00m:\u001b[01;34m${dir}\u001b[00m${sym} `;
-  }
-
-  // ------------------------------------------------------------ public entry points
-  /** Run one interactive line. Output goes to io.write. Resolves to the exit status. */
-  async execLine(line) {
-    let text = line;
-    if (/^\s*$/.test(text)) return this.lastStatus;
-    // history expansion (minimal)
-    if (/(^|\s)!!/.test(text) && !/'[^']*!![^']*'/.test(text)) {
-      const prev = this.history[this.history.length - 1];
-      if (prev !== undefined) { text = text.replace(/!!/g, prev); this.io.write(text + '\n'); }
+    if (this.vars.has(name)) return this.vars.get(name);
+    switch (name) {
+      case '?': return String(this.status);
+      case '$': return String(this.pid);
+      case '#': return String(this.positional.length ? this.positional[this.positional.length - 1].args.length : 0);
+      case 'UID': case 'EUID': return String(this.credOf(this.user).uid);
+      case 'RANDOM': return String(Math.floor(Math.random() * 32768));
+      case 'PWD': return this.cwd;
+      case '0': return this.positional.length ? this.positional[this.positional.length - 1].name : 'bash';
+      case 'HOSTNAME': return this.sys.hostname;
+      case '@': case '*': return this.positional.length ? this.positional[this.positional.length - 1].args.join(' ') : '';
+      default: break;
     }
-    const m = /^\s*!(\d+)\s*$/.exec(text);
-    if (m && this.history[Number(m[1]) - 1] !== undefined) { text = this.history[Number(m[1]) - 1]; this.io.write(text + '\n'); }
-    if (!/^\s/.test(line) && this.history[this.history.length - 1] !== text) this.history.push(text);
+    if (/^\d+$/.test(name) && this.positional.length) return this.positional[this.positional.length - 1].args[Number(name) - 1] ?? '';
+    return this.env[name] ?? '';
+  }
+
+  setVar(name, value, exported = false) {
+    if (exported || name in this.env) { this.env[name] = value; this.vars.delete(name); } else this.vars.set(name, value);
+  }
+
+  // ---------------------------------------------------------------- startup files
+  loadAliases() {
+    this.aliases.clear();
+    this.aliases.set('ls', 'ls --color=auto'); this.aliases.set('grep', 'grep --color=auto'); this.aliases.set('fgrep', 'fgrep --color=auto'); this.aliases.set('egrep', 'egrep --color=auto');
+    const files = ['/etc/bash.bashrc', `${this.frame.env.HOME}/.bashrc`];
+    for (const f of files) {
+      try {
+        for (const l of this.sys.vfs.readFile(f).split('\n')) {
+          const m = /^\s*alias\s+([\w.-]+)=(?:'([^']*)'|"([^"]*)"|(\S+))/.exec(l);
+          if (m) this.aliases.set(m[1], m[2] ?? m[3] ?? m[4]);
+        }
+      } catch { /* unreadable rc files are ignored */ }
+    }
+  }
+  loadHistory() {
+    try { this.history = this.sys.vfs.readFile(`${this.frame.env.HOME}/.bash_history`).split('\n').filter(Boolean); } catch { this.history = []; }
+    this.histStart = this.history.length;
+  }
+  saveHistory() {
+    const u = users.getUser(this.sys, this.frames[0].user);
+    if (!u) return;
     try {
-      const code = await this.runText(text, { term: true });
-      this.lastStatus = code;
-      return code;
-    } catch (e) {
-      if (e instanceof ExitSignal) { this.lastStatus = e.code; throw e; }
-      throw e;
+      const path = `${u.home}/.bash_history`;
+      this.sys.vfs.writeFile(path, this.history.join('\n') + (this.history.length ? '\n' : ''), { uid: u.uid, gid: u.gid, mode: 0o600 });
+    } catch { /* ignore */ }
+  }
+
+  // ---------------------------------------------------------------- prompt
+  prompt() {
+    const home = this.env.HOME;
+    let p = this.cwd;
+    if (home && home !== '/' && (p === home || p.startsWith(home + '/'))) p = '~' + p.slice(home.length);
+    const sym = this.credOf(this.user).uid === 0 ? '#' : '$';
+    return `\u001b[01;32m${this.user}@${this.sys.hostname}\u001b[00m:\u001b[01;34m${p}\u001b[00m${sym} `;
+  }
+  promptPlain() { return this.prompt().replace(/\u001b\[[0-9;]*m/g, ''); }
+
+  // ---------------------------------------------------------------- history expansion
+  expandHistory(line) {
+    if (!line.includes('!')) return line;
+    let out = '';
+    let changed = false;
+    let sq = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === "'") sq = !sq;
+      if (c === '!' && !sq && i + 1 < line.length && !/[\s=(]/.test(line[i + 1])) {
+        const rest = line.slice(i + 1);
+        let m;
+        const h = this.history;
+        if (rest[0] === '!') { if (!h.length) throw new CmdError('bash: !!: event not found'); out += h[h.length - 1]; i += 1; changed = true; continue; }
+        if (rest[0] === '$') { const last = (h[h.length - 1] || '').split(/\s+/).pop(); out += last; i += 1; changed = true; continue; }
+        if ((m = /^-(\d+)/.exec(rest))) { const e = h[h.length - Number(m[1])]; if (!e) throw new CmdError(`bash: !-${m[1]}: event not found`); out += e; i += m[0].length; changed = true; continue; }
+        if ((m = /^(\d+)/.exec(rest))) { const e = h[Number(m[1]) - 1]; if (!e) throw new CmdError(`bash: !${m[1]}: event not found`); out += e; i += m[0].length; changed = true; continue; }
+        if ((m = /^([A-Za-z_./][^\s;|&]*)/.exec(rest))) { const e = [...h].reverse().find((x) => x.startsWith(m[1])); if (!e) throw new CmdError(`bash: !${m[1]}: event not found`); out += e; i += m[0].length; changed = true; continue; }
+      }
+      out += c;
     }
+    if (changed) this.io.write(out + '\n');
+    return out;
   }
 
-  /** Is the text a complete command (false = show "> " continuation prompt)? */
-  isComplete(text) {
-    try { parse(text); return true; } catch (e) { if (e instanceof ParseError && e.incomplete) return false; return true; }
+  // ---------------------------------------------------------------- running
+  async run(line) {
+    this.abort = false;
+    try { line = this.expandHistory(line); } catch (e) { this.io.write(e.message + '\n'); this.status = 1; return 1; }
+    if (!line.trim()) return this.status;
+    if (!line.startsWith(' ') && this.history[this.history.length - 1] !== line) this.history.push(line);
+    return this.runText(line, { out: (s) => this.io.write(s), err: (s) => this.io.write(s), stdin: null, tty: true });
   }
 
-  /** Parse and run text. Returns exit status. */
-  async runText(text, { term = false, stdout = null, stderr = null, stdin = '' } = {}) {
+  async runText(text, stdio) {
     let ast;
     try { ast = parse(text); } catch (e) {
-      if (e instanceof ParseError) { (stderr || new Sink((s) => this.io.write(s))).write(`bash: ${e.message}\n`); return 2; }
+      if (e instanceof ParseError) { stdio.err(`bash: ${e.message}\n`); this.status = 2; return 2; }
       throw e;
     }
-    const out = stdout || new Sink((s) => this.io.write(s));
-    const err = stderr || (term ? new Sink((s) => this.io.write(`\u001b[0m${s}`)) : out);
-    const io = { stdin, out, err, tty: term && !stdout };
-    return this.runList(ast, io);
-  }
-
-  /** Capture the stdout of a script fragment (command substitution). */
-  async capture(text, io) {
-    const out = new Sink();
-    await this.runText(text, { stdout: out, stderr: io.err, stdin: '' });
-    return out.text.replace(/\n+$/, '');
-  }
-
-  // ------------------------------------------------------------ interpreter
-  async runList(list, io) {
-    let code = this.lastStatus;
-    for (const { node, bg } of list.items) {
-      void bg;
-      code = await this.runAndOr(node, io);
-      this.lastStatus = code;
+    try { await this.execNode(ast, stdio); } catch (e) {
+      if (e && e.shellExit !== undefined) throw e;
+      stdio.err(`bash: internal error: ${e && e.message}\n`);
+      console.error(e);
+      this.status = 1;
     }
-    return code;
+    return this.status;
   }
 
-  async runAndOr(node, io) {
-    let code = await this.runPipeline(node.first, io);
-    this.lastStatus = code;
-    for (const { op, pipe } of node.rest) {
-      if (op === '&&' && code !== 0) continue;
-      if (op === '||' && code === 0) continue;
-      code = await this.runPipeline(pipe, io);
-      this.lastStatus = code;
-    }
-    return code;
+  /** Run text and capture its stdout (command substitution). */
+  async capture(text, stdio) {
+    let buf = '';
+    const saved = this.status;
+    await this.runText(text, { out: (s) => { buf += s; }, err: stdio.err, stdin: stdio.stdin, tty: false });
+    this.status = saved === undefined ? this.status : this.status;
+    return buf.replace(/\n+$/, '');
   }
 
-  async runPipeline(p, io) {
-    let code;
-    if (p.cmds.length === 1) code = await this.runCommand(p.cmds[0], io);
-    else {
-      let input = io.stdin;
-      for (let i = 0; i < p.cmds.length; i++) {
-        const last = i === p.cmds.length - 1;
-        const buf = last ? io.out : new Sink();
-        code = await this.runCommand(p.cmds[i], { stdin: input, out: buf, err: io.err, tty: last && io.tty });
-        if (!last) input = buf.text;
+  // ---------------------------------------------------------------- AST execution
+  async execNode(node, stdio) {
+    if (this.abort) return 130;
+    switch (node.type) {
+      case 'list': {
+        let st = this.status;
+        for (const it of node.items) { if (this.abort) break; st = await this.execNode(it.node, stdio); }
+        return st;
       }
-    }
-    return p.neg ? (code === 0 ? 1 : 0) : code;
-  }
-
-  async runCommand(node, io) {
-    // redirections
-    let ioc = { ...io };
-    const files = [];
-    try {
-      for (const r of node.redirs || []) {
-        if (r.op === '2>&1') { ioc.err = ioc.out; continue; }
-        if (r.op === '>&2') { ioc.out = ioc.err; continue; }
-        const target = (await this.expandWord(r.target, { split: false }))[0] ?? '';
-        if (r.op === '<<<') { ioc.stdin = target + '\n'; continue; }
-        if (r.op === '<') {
-          const path = this.abs(target);
-          try { ioc.stdin = this.fsView().readFile(path); } catch (e) { io.err.write(`bash: ${target}: ${e instanceof FsError ? e.text : e.message}\n`); return 1; }
-          continue;
+      case 'andor': {
+        let st = await this.execNode(node.first, stdio);
+        for (const [op, n] of node.rest) {
+          if (op === '&&' ? st === 0 : st !== 0) st = await this.execNode(n, stdio);
         }
-        const append = r.op.endsWith('>>');
-        const sink = new Sink();
-        if (target === '/dev/null') {
-          if (r.op === '2>' || r.op === '2>>') ioc.err = NULL_SINK; else if (r.op === '&>' || r.op === '&>>') { ioc.out = NULL_SINK; ioc.err = NULL_SINK; } else ioc.out = NULL_SINK;
-          continue;
+        return st;
+      }
+      case 'pipe': return this.execPipe(node, stdio);
+      case 'simple': return this.execSimple(node, stdio);
+      case 'redir': return this.execRedirected(node, stdio);
+      case 'for': return this.execFor(node, stdio);
+      case 'while': return this.execWhile(node, stdio);
+      case 'if': {
+        for (const [cond, body] of node.branches) {
+          if ((await this.execNode(cond, stdio)) === 0) return this.execNode(body, stdio);
         }
-        const path = this.abs(target);
-        try {
-          const fs = this.fsView();
-          if (fs.exists(path) && fs.isDir(path)) throw new FsError('EISDIR', path);
-          if (!append) fs.writeFile(path, '', { mode: 0o644 });
-          else if (!fs.exists(path)) fs.writeFile(path, '', { mode: 0o644 });
-          else fs.writeFile(path, '', { append: true });
-        } catch (e) { io.err.write(`bash: ${target}: ${e instanceof FsError ? e.text : e.message}\n`); return 1; }
-        files.push({ path, sink });
-        if (r.op === '2>' || r.op === '2>>') ioc.err = sink; else if (r.op === '&>' || r.op === '&>>') { ioc.out = sink; ioc.err = sink; } else ioc.out = sink;
-        ioc.tty = r.op === '2>' || r.op === '2>>' ? ioc.tty : false;
+        if (node.els) return this.execNode(node.els, stdio);
+        this.status = 0; return 0;
       }
-      let code;
-      switch (node.type) {
-        case 'simple': code = await this.runSimple(node, ioc); break;
-        case 'group': code = await this.runList(node.body, ioc); break;
-        case 'if': code = await this.runIf(node, ioc); break;
-        case 'for': code = await this.runFor(node, ioc); break;
-        case 'while': code = await this.runWhile(node, ioc); break;
-        default: code = 1;
-      }
-      return code;
-    } finally {
-      for (const f of files) {
-        try { this.fsView().writeFile(f.path, f.sink.text, { append: true }); } catch { /* disappeared */ }
-      }
+      case 'subshell': case 'group': return this.execNode(node.body, stdio);
+      default: throw new Error('unknown node ' + node.type);
     }
   }
 
-  async runIf(node, io) {
-    for (const c of node.clauses) {
-      if ((await this.runList(c.cond, { ...io, tty: false })) === 0) return this.runList(c.body, io);
+  async execPipe(node, stdio) {
+    let input = stdio.stdin;
+    let status = 0;
+    for (let i = 0; i < node.cmds.length; i++) {
+      const last = i === node.cmds.length - 1;
+      let buf = '';
+      const st = { out: last ? stdio.out : (s) => { buf += s; }, err: stdio.err, stdin: input, tty: last ? stdio.tty : false };
+      status = await this.execNode(node.cmds[i], st);
+      if (!last) input = { data: buf, pos: 0 };
     }
-    return node.else ? this.runList(node.else, io) : 0;
+    if (node.neg) status = status ? 0 : 1;
+    this.status = status;
+    return status;
   }
 
-  async runFor(node, io) {
-    const items = node.words ? (await Promise.all(node.words.map((w) => this.expandWord(w)))).flat() : [...this.positional];
-    let code = 0;
+  async openRedirs(redirs, stdio) {
+    const sinks = { ...stdio };
+    const fs = this.fsFor(this.user);
+    const sink = async (path, append) => {
+      const abs = this.resolve(path);
+      try {
+        if (!append || !this.sys.vfs.exists(abs)) fs.writeFile(abs, '');
+        else if (this.sys.vfs.isDir(abs)) throw new FsError('EISDIR', path);
+        else fs.writeFile(abs, '', { append: true });
+      } catch (e) {
+        if (e instanceof FsError) { stdio.err(`bash: ${path}: ${e.text}\n`); return null; }
+        throw e;
+      }
+      return (s) => { try { fs.writeFile(abs, s, { append: true }); } catch { /* disk write failed */ } };
+    };
+    for (const r of redirs) {
+      if (r.op === '2>&1') { sinks.err = sinks.out; continue; }
+      const target = (await this.expandWord(r.target, { glob: false }))[0] ?? '';
+      if (r.op === '>&') { if (target === '2') sinks.out = sinks.err; continue; }
+      if (r.op === '<') {
+        try { sinks.stdin = { data: fs.readFile(this.resolve(target)), pos: 0 }; } catch (e) {
+          if (e instanceof FsError) { stdio.err(`bash: ${target}: ${e.text}\n`); return null; }
+          throw e;
+        }
+        continue;
+      }
+      const append = r.op.endsWith('>>');
+      const w = await sink(target, append);
+      if (!w) return null;
+      if (r.op === '>' || r.op === '>>') { sinks.out = w; sinks.tty = false; }
+      else if (r.op === '2>' || r.op === '2>>') sinks.err = w;
+      else { sinks.out = w; sinks.err = w; sinks.tty = false; }
+    }
+    return sinks;
+  }
+
+  async execRedirected(node, stdio) {
+    const sinks = await this.openRedirs(node.redirs, stdio);
+    if (!sinks) { this.status = 1; return 1; }
+    return this.execNode(node.node, sinks);
+  }
+
+  async execFor(node, stdio) {
+    let items;
+    if (node.words) { items = []; for (const w of node.words) items.push(...(await this.expandWord(w))); }
+    else items = this.positional.length ? this.positional[this.positional.length - 1].args : [];
+    let st = 0;
+    let guard = 0;
     for (const it of items) {
-      this.setVar(node.var, it);
-      try { code = await this.runList(node.body, io); } catch (e) {
-        if (e instanceof BreakSignal) { if (e.n > 1) throw new BreakSignal(e.n - 1); break; }
-        if (e instanceof ContinueSignal) { if (e.n > 1) throw new ContinueSignal(e.n - 1); continue; }
-        throw e;
-      }
+      if (this.abort || ++guard > 100000) break;
+      this.setVar(node.name, it);
+      st = await this.execNode(node.body, stdio);
     }
-    return code;
+    this.status = st;
+    return st;
   }
 
-  async runWhile(node, io) {
-    let code = 0;
-    for (let guard = 0; guard < 10000; guard++) {
-      const c = await this.runList(node.cond, { ...io, tty: false });
-      if ((c === 0) === node.until) break;
-      try { code = await this.runList(node.body, io); } catch (e) {
-        if (e instanceof BreakSignal) break;
-        if (e instanceof ContinueSignal) continue;
-        throw e;
-      }
+  async execWhile(node, stdio) {
+    let st = 0;
+    let guard = 0;
+    for (;;) {
+      if (this.abort || ++guard > 100000) break;
+      const c = await this.execNode(node.cond, stdio);
+      if (node.until ? c === 0 : c !== 0) break;
+      st = await this.execNode(node.body, stdio);
     }
-    return code;
+    this.status = st;
+    return st;
   }
 
-  fsView() { return new FsView(this.sys.vfs, this.cred); }
-
-  // ------------------------------------------------------------ simple commands
-  async runSimple(node, io) {
+  async execSimple(node, stdio) {
+    let argv = [];
+    for (const w of node.words) argv.push(...(await this.expandWord(w)));
     const assigns = [];
     for (const a of node.assigns) assigns.push([a.name, (await this.expandWord(a.word, { split: false, glob: false })).join(' ')]);
-    let words = [];
-    for (const w of node.words) words.push(...(await this.expandWord(w)));
-    if (!words.length) { for (const [k, v] of assigns) this.setVar(k, v); return 0; }
-    // alias expansion of the first word (once)
-    if (this.aliases.has(words[0]) && !node.words[0].hasQuote) {
+    const sinks = node.redirs.length ? await this.openRedirs(node.redirs, stdio) : stdio;
+    if (!sinks) { this.status = 1; return 1; }
+    if (!argv.length) { for (const [k, v] of assigns) this.setVar(k, v); this.status = 0; return 0; }
+    // aliases (only when the command word was written unquoted)
+    const first = node.words[0];
+    if (first.segs.length === 1 && first.segs[0].k === 'lit' && this.aliases.has(argv[0]) && !this._aliasing) {
+      this._aliasing = true;
       try {
-        const toks = tokenize(this.aliases.get(words[0])).filter((t) => t.t === 'word');
-        const exp = [];
-        for (const t of toks) exp.push(...(await this.expandWord(t)));
-        words = [...exp, ...words.slice(1)];
-      } catch { /* ignore broken alias */ }
+        const val = this.aliases.get(argv[0]);
+        const ast = parse(val);
+        const w = ast.items[0]?.node;
+        if (w && w.type === 'simple') {
+          const pre = [];
+          for (const t of w.words) pre.push(...(await this.expandWord(t)));
+          argv = [...pre, ...argv.slice(1)];
+        }
+      } catch { /* bad alias text: run the literal command */ } finally { this._aliasing = false; }
     }
-    const saved = assigns.map(([k]) => [k, this.vars.get(k), this.exported.has(k)]);
-    for (const [k, v] of assigns) this.setVar(k, v, true);
-    try {
-      return await this.dispatch(words[0], words.slice(1), io);
-    } finally {
-      for (const [k, v, was] of saved) { if (v === undefined) { this.vars.delete(k); this.exported.delete(k); } else { this.vars.set(k, v); if (!was) this.exported.delete(k); } }
-    }
+    const env = {};
+    for (const [k, v] of assigns) env[k] = v;
+    const st = await this.execArgv(argv, sinks, { env });
+    this.status = st;
+    return st;
   }
 
-  makeCtx(name, args, io) {
-    const cred = this.cred;
-    return {
-      sys: this.sys, shell: this, name, args, io: this.io,
-      stdin: io.stdin, tty: !!io.tty, cols: this.cols,
-      out: (s) => io.out.write(s), err: (s) => io.err.write(s),
-      user: this.euser, uid: cred.uid, cred, isRoot: cred.uid === 0,
-      fs: new FsView(this.sys.vfs, cred),
-      env: this.env, cwd: this.cwd,
-      abs: (p) => this.abs(p),
-      now: () => this.sys.now(),
-      run: (text, o = {}) => this.runText(text, { stdout: o.stdout || io.out, stderr: o.stderr || io.err, stdin: o.stdin ?? '' }),
-      exec: (argv, o = {}) => this.dispatch(argv[0], argv.slice(1), { stdin: o.stdin ?? '', out: o.out || io.out, err: o.err || io.err, tty: !!o.tty }),
-    };
-  }
-
-  findInPath(name) {
-    if (name.includes('/')) return this.abs(name);
-    for (const d of (this.vars.get('PATH') || '').split(':')) {
+  // ---------------------------------------------------------------- command dispatch
+  resolveCommand(name, user = this.user) {
+    if (name.includes('/')) {
+      const path = this.resolve(name);
+      const fs = this.fsFor(user);
+      let node;
+      try { node = fs.lookup(path); } catch (e) { if (e instanceof FsError) return { err: `${name}: ${e.text}`, code: 126 }; throw e; }
+      if (!node) return { err: `${name}: No such file or directory`, code: 127 };
+      if (node.t === 'd') return { err: `${name}: Is a directory`, code: 126 };
+      if (!(node.mode & 0o111) || (user !== 'root' && !this.canExec(node, this.credOf(user)))) return { err: `${name}: Permission denied`, code: 126 };
+      const text = node.gen ? node.gen() : node.data || '';
+      if (text.startsWith('\u007fELF')) {
+        const base = posix.basename(path);
+        const def = commands.get(base);
+        if (def && this.available(def)) return { def };
+        return { err: `${name}: cannot execute binary file: Exec format error`, code: 126 };
+      }
+      return { script: path, text };
+    }
+    const def = commands.get(name);
+    if (def && this.available(def)) return { def };
+    for (const d of (this.env.PATH || DEFAULT_PATH).split(':')) {
       const p = `${d}/${name}`;
-      if (this.sys.vfs.isFile(p)) return p;
+      try {
+        const node = this.sys.vfs.lookup(p);
+        if (node && node.t === 'f' && (node.mode & 0o111) && !(node.data || '').startsWith('\u007fELF')) return { script: p, text: node.data || '' };
+      } catch { /* keep searching */ }
     }
     return null;
   }
+  canExec(node, cred) {
+    const shift = node.uid === cred.uid ? 6 : cred.gids.includes(node.gid) ? 3 : 0;
+    return ((node.mode >> shift) & 1) !== 0;
+  }
+  available(def) { return !def.pkg || pk.isInstalled(this.sys, def.pkg); }
 
-  async dispatch(name, args, io) {
-    const ctx = this.makeCtx(name, args, io);
-    try {
-      const b = REGISTRY.builtins[name];
-      if (b) return (await b(ctx)) ?? 0;
-      if (name.includes('/')) return await this.runPath(name, args, io, ctx);
-      const cmd = REGISTRY.commands[name];
-      if (cmd) {
-        // commands that ship in a package only exist while the package's binary is present
-        if (cmd.bin && !this.sys.vfs.exists(cmd.bin)) return this.notFound(name, io);
-        return (await cmd.fn(ctx)) ?? 0;
-      }
-      // an executable script on the PATH
-      const p = this.findInPath(name);
-      if (p && this.sys.vfs.isFile(p)) return await this.runPath(p, args, io, ctx);
-      return this.notFound(name, io);
-    } catch (e) {
-      if (e instanceof ExitSignal || e instanceof BreakSignal || e instanceof ContinueSignal) throw e;
-      if (e instanceof CmdError) { if (e.message) io.err.write(e.message.endsWith('\n') ? e.message : e.message + '\n'); return e.code; }
-      if (e instanceof FsError) { io.err.write(`${name}: ${e.path}: ${e.text}\n`); return 1; }
-      throw e;
+  notFound(name) {
+    if (!name.includes('/')) {
+      const p = packageForCommand(name);
+      if (p && !pk.isInstalled(this.sys, p) && PACKAGES[p]) return `Command '${name}' not found, but can be installed with:\n\nsudo apt install ${p}\n`;
+      return `${name}: command not found\n`;
     }
+    return `bash: ${name}: No such file or directory\n`;
   }
 
-  notFound(name, io) {
-    const providers = Object.values(PACKAGES).filter((p) => p.bins.some((b) => b.split('/').pop() === name) || (REGISTRY.commands[name]?.bin && p.bins.includes(REGISTRY.commands[name].bin)));
-    if (providers.length) io.err.write(`Command '${name}' not found, but can be installed with:\n\nsudo apt install ${providers[0].name}\n`);
-    else io.err.write(`${name}: command not found\n`);
-    return 127;
+  makeCtx(argv, stdio, { asUser, env } = {}) {
+    const user = asUser ?? this.user;
+    const cred = this.credOf(user);
+    const sh = this;
+    const fs = new FsView(this.sys.vfs, cred);
+    const ctx = {
+      sh, sys: this.sys, name: argv[0], argv, args: argv.slice(1), stdio, stdin: stdio.stdin,
+      out: stdio.out, err: stdio.err, tty: !!stdio.tty, user, cred, fs, isRoot: cred.uid === 0,
+      env: { ...this.env, ...(asUser && asUser !== this.user ? this.pushedEnv(asUser) : {}), ...(env || {}) },
+      cwd: this.cwd, term: this.io, cols: this.io.cols || 80,
+      resolve: (p) => posix.normalize(p, this.cwd),
+      aborted: () => this.abort,
+      sleep: (ms) => new Promise((r) => { const t = setTimeout(r, ms); const iv = setInterval(() => { if (sh.abort) { clearTimeout(t); clearInterval(iv); r(); } }, 60); setTimeout(() => clearInterval(iv), ms + 100); }),
+      exec: (a, io = stdio, o = {}) => sh.execArgv(a, io, { asUser: user !== sh.user ? user : undefined, ...o }),
+      fail(msg, code = 1) { ctx.err(`${ctx.name}: ${msg}\n`); return code; },
+      fsErr(e, shown) { ctx.err(`${ctx.name}: ${shown ?? e.path}: ${e.text}\n`); return 1; },
+      readAll() { const s = ctx.stdin; if (!s) return ''; const r = s.data.slice(s.pos); s.pos = s.data.length; return r; },
+      readLine() { const s = ctx.stdin; if (!s || s.pos >= s.data.length) return null; const i = s.data.indexOf('\n', s.pos); const line = i < 0 ? s.data.slice(s.pos) : s.data.slice(s.pos, i); s.pos = i < 0 ? s.data.length : i + 1; return line; },
+      /** stdin text; when attached to the terminal, read lines until Ctrl+D. */
+      async stdinText() {
+        if (ctx.stdin) return ctx.readAll();
+        let t = '';
+        for (;;) { const l = await sh.io.readLine('', { echo: true }); if (l == null) break; t += l + '\n'; }
+        return t;
+      },
+    };
+    return ctx;
   }
 
-  async runPath(name, args, io, ctx) {
-    const path = this.abs(name);
-    const fs = this.fsView();
-    if (!fs.exists(path)) { io.err.write(`bash: ${name}: No such file or directory\n`); return 127; }
-    if (fs.isDir(path)) { io.err.write(`bash: ${name}: Is a directory\n`); return 126; }
-    const st = this.sys.vfs.stat(path);
-    if ((st.mode & 0o111) === 0 || !this.canExec(st)) { io.err.write(`bash: ${name}: Permission denied\n`); return 126; }
-    const text = fs.readFile(path);
-    if (text.startsWith('\u007fELF')) return REGISTRY.commands[posix.basename(path)] ? REGISTRY.commands[posix.basename(path)].fn(ctx) : 0;
-    return this.runScript(text, [path, ...args], io);
-  }
-  canExec(st) {
-    const c = this.cred;
-    if (c.uid === 0) return true;
-    const shift = st.uid === c.uid ? 6 : c.gids.includes(st.gid) ? 3 : 0;
-    return ((st.mode >> shift) & 1) !== 0;
+  pushedEnv(user) {
+    const u = users.getUser(this.sys, user);
+    return { USER: user, LOGNAME: user, HOME: u?.home || '/', SUDO_USER: this.user };
   }
 
-  async runScript(text, argv, io) {
-    const savedPos = this.positional; const savedName = this.scriptName;
-    this.positional = argv.slice(1); this.scriptName = argv[0];
+  async execArgv(argv, stdio, opts = {}) {
+    const name = argv[0];
+    const r = this.resolveCommand(name, opts.asUser ?? this.user);
+    if (!r) { stdio.err(this.notFound(name)); this.status = 127; return 127; }
+    if (r.err) { stdio.err(`bash: ${r.err}\n`); this.status = r.code; return r.code; }
+    if (r.script) return this.runScript(r.text, argv[0], argv.slice(1), stdio, opts);
+    const ctx = this.makeCtx(argv, stdio, opts);
+    let st;
     try {
-      const body = text.replace(/^#!.*\n/, '');
-      return await this.runText(body, { stdout: io.out, stderr: io.err, stdin: io.stdin });
+      if (ctx.args.includes('--help') && r.def.usage && !r.def.noHelp) { ctx.out(`Usage: ${r.def.usage}\n`); st = 0; }
+      else st = (await r.def.fn(ctx)) ?? 0;
     } catch (e) {
-      if (e instanceof ExitSignal) return e.code;
-      throw e;
-    } finally { this.positional = savedPos; this.scriptName = savedName; }
+      if (e instanceof FsError) { ctx.err(`${name}: ${e.path}: ${e.text}\n`); st = 1; }
+      else if (e instanceof CmdError) { ctx.err(e.message + '\n'); st = e.code; }
+      else if (e && e.shellExit !== undefined) throw e;
+      else { ctx.err(`${name}: internal error: ${e && e.message}\n`); console.error(e); st = 1; }
+    }
+    this.status = st;
+    return st;
   }
 
-  // ------------------------------------------------------------ expansion
-  async expandWord(word, { split = true, glob = true } = {}) {
-    const fields = [[]];             // each field: [{s,q}]
-    let quotedEmpty = [false];
+  async runScript(text, name, args, stdio, opts = {}) {
+    if (this.depth > 20) { stdio.err('bash: maximum recursion depth exceeded\n'); return 1; }
+    let body = text;
+    if (body.startsWith('#!')) body = body.slice(body.indexOf('\n') + 1);
+    this.positional.push({ name, args });
+    this.depth++;
+    const pushed = opts.asUser && opts.asUser !== this.user;
+    if (pushed) this.pushFrame(opts.asUser, { cwd: this.cwd, keepEnv: null });
+    try { await this.runText(body, stdio); } finally { if (pushed) this.popFrame(); this.depth--; this.positional.pop(); }
+    return this.status;
+  }
+
+  /** Run script text (bash -c) optionally as another user. */
+  async runScriptAs(text, stdio, asUser) {
+    const pushed = asUser && asUser !== this.user;
+    if (pushed) this.pushFrame(asUser, { cwd: this.cwd });
+    try { await this.runText(text, stdio); } finally { if (pushed) this.popFrame(); }
+    return this.status;
+  }
+
+  // ---------------------------------------------------------------- expansion
+  async expandWord(tok, { split = true, glob = true } = {}) {
+    const fields = [{ s: '', g: '', has: false }];
     const cur = () => fields[fields.length - 1];
-    const add = (s, q) => { if (s !== '' || q) cur().push({ s, q }); if (q) quotedEmpty[fields.length - 1] = true; };
-    const addSplit = (s) => {
-      if (!split) return add(s, false);
-      const pieces = s.split(/[ \t\n]+/);
-      pieces.forEach((piece, i) => {
-        if (i > 0) { fields.push([]); quotedEmpty.push(false); }
-        if (piece !== '') cur().push({ s: piece, q: false });
+    const esc = (t) => t.replace(/[*?[\\]/g, '\\$&');
+    const addQuoted = (t) => { const f = cur(); f.s += t; f.g += esc(t); f.has = true; };
+    const addLit = (t) => { const f = cur(); f.s += t; f.g += t; };
+    const addSplit = (t) => {
+      if (!split) { addLit(t); return; }
+      const parts = t.split(/[ \t\n]+/);
+      parts.forEach((p, i) => {
+        if (i > 0) fields.push({ s: '', g: '', has: false });
+        if (p) addLit(p);
       });
     };
-    for (const part of word.parts) {
-      switch (part.k) {
-        case 'lit': add(part.v, part.q); break;
-        case 'tilde': add(part.v ? (users.getUser(this.sys, part.v)?.home ?? `~${part.v}`) : this.home(), true); break;
-        case 'var': {
-          if ((part.v === '@' || part.v === '*') && part.q && split) {
-            this.positional.forEach((p, i) => { if (i > 0) { fields.push([]); quotedEmpty.push(false); } add(p, true); });
-            break;
-          }
-          const val = await this.expandVar(part.v);
-          if (part.q) add(val, true); else addSplit(val);
-          break;
-        }
+    for (let si = 0; si < tok.segs.length; si++) {
+      const seg = tok.segs[si];
+      switch (seg.k) {
+        case 'sq': addQuoted(seg.v); break;
+        case 'dqmark': cur().has = true; break;
+        case 'dq': addQuoted(await this.expandVars(seg.v)); break;
         case 'cmd': {
-          const val = await this.capture(part.v, { err: new Sink((s) => this.io.write(s)) });
-          if (part.q) add(val, true); else addSplit(val);
+          const out = await this.capture(seg.v, { err: (s) => this.io.write(s), stdin: null });
+          if (seg.quoted) addQuoted(out); else addSplit(out);
           break;
         }
-        case 'arith': { const val = String(this.arith(part.v)); if (part.q) add(val, true); else addSplit(val); break; }
+        case 'arith': { const v = String(await this.arith(seg.v)); if (seg.quoted) addQuoted(v); else addSplit(v); break; }
+        case 'lit': {
+          let t = seg.v;
+          if (si === 0 && t[0] === '~') {
+            const m = /^~([A-Za-z0-9_-]*)(\/.*)?$/.exec(t);
+            if (m && !(tok.segs[1] && tok.segs[1].k !== 'lit' && !m[2] && false)) {
+              const home = m[1] ? users.getUser(this.sys, m[1])?.home : this.env.HOME;
+              if (home) t = home + (m[2] || '');
+            }
+          }
+          const re = /\$\{([A-Za-z_][A-Za-z0-9_]*|[?$#@*0-9])(?:(:?[-=+?])([^}]*))?\}|\$\{#([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|\$([?$#@*0-9!])/g;
+          let last = 0; let m;
+          while ((m = re.exec(t))) {
+            if (m.index > last) addLit(t.slice(last, m.index));
+            addSplit(this.varValue(m));
+            last = m.index + m[0].length;
+          }
+          if (last < t.length) addLit(t.slice(last));
+          break;
+        }
         default: break;
       }
     }
-    const result = [];
-    fields.forEach((f, i) => {
-      if (!f.length && !quotedEmpty[i]) return;
-      const text = f.map((x) => x.s).join('');
-      const hasGlob = glob && f.some((x) => !x.q && /[*?[]/.test(x.s));
-      if (hasGlob) {
-        const pat = f.map((x) => (x.q ? x.s.replace(/[*?[\\]/g, '\\$&') : x.s)).join('');
-        const m = this.globExpand(pat);
-        if (m.length) { result.push(...m); return; }
+    const out = [];
+    for (const f of fields) {
+      if (!f.has && f.s === '') continue;
+      if (glob && MAGIC.test(f.g)) {
+        const matches = this.glob(f.g);
+        if (matches.length) { out.push(...matches); continue; }
       }
-      result.push(text);
-    });
-    return result;
-  }
-
-  async expandVar(spec) {
-    const m = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[?$#@*!])(.*)$/.exec(spec);
-    if (!m) return '';
-    const [, name, rest] = m;
-    const val = this.getVar(name);
-    if (!rest) return val;
-    if (spec.startsWith('#') && rest === '' ) return String(val.length);
-    let r;
-    if ((r = /^:?-(.*)$/.exec(rest))) return val === '' ? r[1] : val;
-    if ((r = /^:?=(.*)$/.exec(rest))) { if (val === '') { this.setVar(name, r[1]); return r[1]; } return val; }
-    if ((r = /^:?\+(.*)$/.exec(rest))) return val !== '' ? r[1] : '';
-    if ((r = /^(##?)(.*)$/.exec(rest))) { const re = globToRegex(r[2]); let best = val; for (let i = 0; i <= val.length; i++) if (re.test(val.slice(0, i))) { best = val.slice(i); if (r[1] === '#') break; } return best; }
-    if ((r = /^(%%?)(.*)$/.exec(rest))) { const re = globToRegex(r[2]); let best = val; for (let i = val.length; i >= 0; i--) if (re.test(val.slice(i))) { best = val.slice(0, i); if (r[1] === '%') break; } return best; }
-    if ((r = /^\/(\/?)([^/]*)\/?(.*)$/.exec(rest))) { const re = new RegExp(r[2].replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*'), r[1] ? 'g' : ''); return val.replace(re, r[3]); }
-    if ((r = /^:(\d+)(?::(\d+))?$/.exec(rest))) return r[2] ? val.substr(Number(r[1]), Number(r[2])) : val.slice(Number(r[1]));
-    return val;
-  }
-
-  arith(expr) {
-    const e = expr.replace(/\$?([A-Za-z_][A-Za-z0-9_]*)/g, (_, n) => String(Number(this.getVar(n)) || 0));
-    if (!/^[0-9+\-*/%()\s<>=!&|^]*$/.test(e)) return 0;
-    try { return Math.trunc(Function(`"use strict";return (${e || 0})`)()); } catch { return 0; }
-  }
-
-  globExpand(pattern) {
-    const abs = pattern.startsWith('/');
-    const segs = pattern.split('/').filter((s) => s !== '');
-    const fs = this.sys.vfs;
-    const cred = this.cred;
-    let bases = [abs ? '/' : this.cwd];
-    let display = [abs ? '/' : ''];
-    segs.forEach((seg, idx) => {
-      const last = idx === segs.length - 1;
-      const next = []; const nd = [];
-      if (!/[*?[]/.test(seg)) {
-        const lit = seg.replace(/\\(.)/g, '$1');
-        bases.forEach((b, i) => { const p = posix.normalize(lit, b); if (fs.exists(p, { cred }) && (last || fs.isDir(p, { cred }))) { next.push(p); nd.push(display[i] + lit + (last ? '' : '/')); } });
-      } else {
-        const re = globToRegex(seg);
-        bases.forEach((b, i) => {
-          let names = [];
-          try { names = fs.readdir(b, { cred }); } catch { return; }
-          for (const n of names.sort()) {
-            if (n.startsWith('.') && !seg.startsWith('.')) continue;
-            if (!re.test(n)) continue;
-            const p = posix.join(b, n);
-            if (!last && !fs.isDir(p, { cred })) continue;
-            next.push(p); nd.push(display[i] + n + (last ? '' : '/'));
-          }
-        });
-      }
-      bases = next; display = nd;
-    });
-    return segs.length ? display.filter((_, i) => bases[i] != null) : [];
-  }
-
-  // ------------------------------------------------------------ completion
-  complete(line) {
-    const m = /(^|\s)([^\s]*)$/.exec(line);
-    const word = m ? m[2] : '';
-    const first = line.slice(0, line.length - word.length).trim() === '';
-    let cands = [];
-    if (first && !word.includes('/')) {
-      const set = new Set([...Object.keys(REGISTRY.builtins), ...Object.keys(REGISTRY.commands).filter((n) => !REGISTRY.commands[n].bin || this.sys.vfs.exists(REGISTRY.commands[n].bin)), ...this.aliases.keys()]);
-      cands = [...set].filter((n) => n.startsWith(word)).sort();
-    } else {
-      const slash = word.lastIndexOf('/');
-      const dirPart = slash >= 0 ? word.slice(0, slash + 1) : '';
-      const base = word.slice(slash + 1);
-      try {
-        const dir = this.abs(dirPart || '.');
-        for (const n of this.fsView().readdir(dir).sort()) {
-          if (!n.startsWith(base) || (n.startsWith('.') && !base.startsWith('.'))) continue;
-          const p = posix.join(dir, n);
-          cands.push(dirPart + n + (this.sys.vfs.isDir(p) ? '/' : ''));
-        }
-      } catch { /* unreadable */ }
+      out.push(f.s);
     }
-    return { word, candidates: cands };
+    return out;
+  }
+
+  varValue(m) {
+    if (m[4]) return String(this.getVar(m[4]).length);
+    const name = m[1] || m[5] || m[6];
+    let v = this.getVar(name);
+    if (m[2]) {
+      const op = m[2]; const arg = m[3] ?? '';
+      const unset = v === '';
+      if (op === ':-' || op === '-') return unset ? arg : v;
+      if (op === ':=' || op === '=') { if (unset) { this.setVar(name, arg); return arg; } return v; }
+      if (op === ':+' || op === '+') return unset ? '' : arg;
+    }
+    return v;
+  }
+
+  async expandVars(text) {
+    const re = /\$\{([A-Za-z_][A-Za-z0-9_]*|[?$#@*0-9])(?:(:?[-=+?])([^}]*))?\}|\$\{#([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|\$([?$#@*0-9!])/g;
+    return text.replace(re, (...m) => this.varValue(m));
+  }
+
+  async arith(expr) {
+    const e = (await this.expandVars(expr)).replace(/\b[A-Za-z_][A-Za-z0-9_]*\b/g, (n) => this.getVar(n) || '0');
+    if (!/^[\d\s+\-*/%()<>=!&|^]+$/.test(e)) return 0;
+    try { return Math.trunc(Function(`"use strict";return (${e})`)()); } catch { return 0; }
+  }
+
+  glob(pattern) {
+    const abs = pattern.startsWith('/');
+    const parts = pattern.split('/').filter((x, i) => x !== '' || i === 0);
+    let bases = [abs ? '/' : ''];
+    const vfs = this.sys.vfs;
+    const cred = this.credOf(this.user);
+    const parts2 = abs ? parts.slice(1) : parts;
+    for (let i = 0; i < parts2.length; i++) {
+      const part = parts2[i];
+      const next = [];
+      if (!MAGIC.test(part)) {
+        const lit = part.replace(/\\(.)/g, '$1');
+        for (const b of bases) { const p = b === '' ? lit : b === '/' ? '/' + lit : `${b}/${lit}`; if (i === parts2.length - 1 ? vfs.exists(this.resolve(p)) : true) next.push(p); }
+      } else {
+        const re = globToRegex(part);
+        for (const b of bases) {
+          let names;
+          try { names = vfs.readdir(this.resolve(b === '' ? '.' : b), { cred }); } catch { continue; }
+          for (const n of names.sort()) {
+            if (n.startsWith('.') && !part.startsWith('.')) continue;
+            if (!re.test(n)) continue;
+            const p = b === '' ? n : b === '/' ? '/' + n : `${b}/${n}`;
+            if (i < parts2.length - 1 && !vfs.isDir(this.resolve(p))) continue;
+            next.push(p);
+          }
+        }
+      }
+      bases = next;
+      if (!bases.length) return [];
+    }
+    return bases;
+  }
+
+  // ---------------------------------------------------------------- tab completion
+  complete(line, cursor = line.length) {
+    const before = line.slice(0, cursor);
+    const m = /(?:^|[\s;|&(])((?:[^\s'"\\]|\\.)*)$/.exec(before);
+    const word = m ? m[1] : '';
+    const start = before.length - word.length;
+    const prefixText = before.slice(0, start);
+    const atCommand = /(^|[;|&(]\s*|\bsudo\s+(-\S+\s+)*|\bxargs\s+|\bwatch\s+|\btime\s+|\bnohup\s+)$/.test(prefixText) || prefixText.trim() === '';
+    const unesc = word.replace(/\\(.)/g, '$1');
+    let cands = [];
+    if (atCommand && !unesc.includes('/')) {
+      const set = new Set();
+      for (const [n, d] of commands) if (this.available(d)) set.add(n);
+      for (const n of this.aliases.keys()) set.add(n);
+      for (const n of ['cd', 'exit', 'export', 'alias', 'unalias', 'history', 'source', 'type', 'read', 'echo', 'pwd', 'logout', 'unset', 'set', 'exec', 'kill', 'test', 'true', 'false']) set.add(n);
+      for (const d of (this.env.PATH || '').split(':')) { try { for (const n of this.sys.vfs.readdir(d)) set.add(n); } catch { /* skip */ } }
+      cands = [...set].filter((n) => n.startsWith(unesc)).sort();
+    } else {
+      const slash = unesc.lastIndexOf('/');
+      const dirPart = slash >= 0 ? unesc.slice(0, slash + 1) : '';
+      const namePart = unesc.slice(slash + 1);
+      let dirAbs = this.resolve(dirPart === '' ? '.' : dirPart.startsWith('~') ? (this.env.HOME + dirPart.slice(1)) : dirPart);
+      try {
+        const names = this.sys.vfs.readdir(dirAbs, { cred: this.credOf(this.user) });
+        for (const n of names.sort()) {
+          if (!n.startsWith(namePart)) continue;
+          if (n.startsWith('.') && !namePart.startsWith('.')) continue;
+          const isDir = this.sys.vfs.isDir(posix.join(dirAbs, n));
+          cands.push(dirPart + n + (isDir ? '/' : ''));
+        }
+      } catch { /* unreadable dir */ }
+      if (atCommand) cands = cands.filter((c) => c.endsWith('/') || true);
+    }
+    const escape = (s) => s.replace(/([ '"\\&;|()<>*?[\]$`!#])/g, '\\$1');
+    return { start, candidates: cands, escaped: cands.map((c) => (c.endsWith('/') ? escape(c) : escape(c))), single: cands.length === 1 && !cands[0].endsWith('/') };
   }
 }
-
-export { BreakSignal, ContinueSignal };

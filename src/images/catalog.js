@@ -127,7 +127,6 @@ const BASE = [
   ['onboard', '1.4.1-6', 'Simple On-screen Keyboard', { gui: { title: 'Onboard', summary: 'On-screen keyboard', cat: 'Accessories' } }],
   ['system-config-printer', '1.5.18-1ubuntu1', 'graphical interface to configure the printing system', { gui: { title: 'Printers', summary: 'Configure printers', cat: 'System Tools' } }],
 ];
-BASE.push(['lsof', '4.93.2+dfsg-1.1build2', 'utility to list open files', { bins: ['/usr/bin/lsof'] }]);
 for (const [name, v, d, o] of BASE) pkg(name, v, d, { ...o, installed: true });
 
 // filler: real packages that make `dpkg -l` look like a real machine (no behaviour attached)
