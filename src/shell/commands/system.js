@@ -805,7 +805,7 @@ cmd('editor', (ctx) => editFile(ctx, 'nano', ctx.args));
 
 // ---------------------------------------------------------------- GUI launchers
 const LAUNCH = {
-  firefox: 'firefox', xed: 'xed', nemo: 'nemo', gufw: 'gufw', 'gnome-terminal': 'terminal', 'x-terminal-emulator': 'terminal',
+  firefox: 'firefox', chromium: 'chromium', 'chromium-browser': 'chromium', xed: 'xed', nemo: 'nemo', gufw: 'gufw', 'gnome-terminal': 'terminal', 'x-terminal-emulator': 'terminal',
   'cinnamon-settings': 'settings', 'mintupdate': 'update', mintinstall: 'software', mintsources: 'sources', 'gnome-system-monitor': 'monitor',
   'lightdm-settings': 'login', 'cinnamon-session-properties': 'startup', 'users-admin': 'users', 'system-config-printer': 'printers', 'gnome-calculator': 'generic', libreoffice: 'generic', thunderbird: 'generic', celluloid: 'generic', rhythmbox: 'generic', pix: 'generic', xreader: 'generic', timeshift: 'generic', 'transmission-gtk': 'generic',
   'mintreport': 'generic', 'cinnamon': 'generic', 'mintbackup': 'generic', 'mintstick': 'generic', 'bulky': 'generic', 'drawing': 'generic', 'seahorse': 'generic', 'warpinator': 'generic', 'hypnotix': 'generic', 'mintwelcome': 'generic',
@@ -814,7 +814,7 @@ const pkgOfBin = (bin) => Object.values(PACKAGES).find((d) => (d.bins || []).som
 for (const [bin, app] of Object.entries(LAUNCH)) {
   cmd(bin, (ctx) => {
     if (!ctx.env.DISPLAY) { ctx.err(`Unable to init server: Could not connect: Connection refused\n(${bin}:1): Gtk-WARNING **: cannot open display\n`); return 1; }
-    if (ctx.isRoot && ctx.sh.frames[0].user !== 'root' && bin === 'firefox') {
+    if (ctx.isRoot && ctx.sh.frames[0].user !== 'root' && (bin === 'firefox' || bin === 'chromium')) {
       ctx.err("Running Firefox as root in a regular user's session is not supported.  ($HOME is /home/student which is owned by student.)\n");
       return 1;
     }

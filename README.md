@@ -40,7 +40,7 @@ tests/         node:test suites incl. a full scripted solve that must reach exac
 - Shell: quoting, variables, `$(…)`, arithmetic, globs, pipes, redirects, `&&`/`||`/`;`, `for`/`while`/`if`, history expansion, aliases, tab completion API, `~/.bashrc`, command-not-found suggestions, ~200 commands (coreutils-like, grep/sed/awk subset, find with `-exec`, ps/top/kill, journalctl, man (short pages), nano/vi hooks, GUI launchers)
 - Scoring engine (instant or realistic 60 s mode), report object, penalties, persistence round trip
 - Desktop UI (`index.html`, `css/`, `src/main.js`, `src/ui/*`): Cinnamon-style panel, start menu from `.desktop` files, window manager, desktop icons, polkit-style auth dialog, "You gained / lost points" toasts + sounds, welcome dialog, lock screen/greeter, tray menu (scoring mode, sound, hint, report, reset), autosave to localStorage, reboot semantics
-- GUI apps (`src/apps/*`): Terminal (history, Tab completion, nano/vi overlays), Files/Nemo (Open as Root, trash, Properties → Permissions), Text Editor (xed), Firefox (tabs, README, live Scoring Report), Users and Groups, Firewall (gufw), Update Manager (+ auto-refresh preference), Software Manager, Startup Applications, Login Window (guest sessions), System Monitor, System Settings. All of them read/write the same virtual system as the terminal, so a fix made either way scores identically
+- GUI apps (`src/apps/*`): Terminal (history, Tab completion, nano/vi overlays), Files/Nemo (Open as Root, trash, Properties → Permissions), Text Editor (xed), Chromium/Firefox viewer (tabs, README, live CCS-style Scoring Report at `/opt/CyberPatriot/ScoringReport.html`), Users and Groups, Firewall (gufw), Update Manager (+ auto-refresh preference), Software Manager, Startup Applications, Login Window (guest sessions), System Monitor, System Settings. All of them read/write the same virtual system as the terminal, so a fix made either way scores identically
 - Tests: 17 passing (VFS, full terminal solve to 100/100, penalties, respawn, snapshot/restore, boot). GUI paths were also verified in headless Chromium (Playwright): GUI fixes score, toasts fire, state survives a reload
 
 ## What's left (in priority order)
@@ -62,7 +62,7 @@ Known quirk: browsers may capture Ctrl+W / Ctrl+T in nano; use the clickable foo
 | `write(text)` | print (ANSI colors, `\x1b[K` etc.) |
 | `readLine(prompt, {echo, secret})` → string \| null | read a line (null = Ctrl+D); used for sudo/passwd prompts and apt confirmations |
 | `editor({path, text, kind:'nano'|'vi', isNew, readErr, save(text)→{ok,err}, user, startLine})` → string \| null | full-screen editor; call `save` on write-out and show `err` in the status bar like nano ("Error writing …: Permission denied") |
-| `launch(appId, {name, args, user, cwd})` | open a GUI app (`firefox xed nemo gufw terminal settings update software sources monitor login startup users generic`) running as `user` |
+| `launch(appId, {name, args, user, cwd})` | open a GUI app (`firefox chromium xed nemo gufw terminal settings update software sources monitor login startup users generic`) running as `user` |
 | `clear()`, `exit()`, `cols`, `rows`, optional `power(kind)`, `notify(args)` | |
 
 `shell.run(line)` executes a line; `shell.prompt()` gives the colored prompt; `shell.complete(...)` returns completion candidates.

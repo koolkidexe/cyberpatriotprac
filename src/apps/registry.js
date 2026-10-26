@@ -4,6 +4,7 @@ const LOADERS = {
   nemo: () => import('./files.js'),
   xed: () => import('./editor.js'),
   firefox: () => import('./browser.js'),
+  chromium: () => import('./browser.js'),
   users: () => import('./users-app.js'),
   settings: () => import('./settings.js'),
   gufw: () => import('./gufw.js'),

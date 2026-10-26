@@ -6,6 +6,8 @@ const G = {
   text: ['#eceff1', '<path d="M12 6h16l9 9v27c0 1-1 2-2 2H12c-1 0-2-1-2-2V8c0-1 1-2 2-2z" fill="#fff" stroke="#9aa5ab" stroke-width="2"/><path d="M28 6v9h9" fill="#dfe5e8" stroke="#9aa5ab" stroke-width="2"/><path d="M16 22h17M16 27h17M16 32h17M16 37h9" stroke="#6b7a82" stroke-width="2"/>'],
   html: ['#eceff1', '<path d="M12 6h16l9 9v27c0 1-1 2-2 2H12c-1 0-2-1-2-2V8c0-1 1-2 2-2z" fill="#fff" stroke="#9aa5ab" stroke-width="2"/><path d="M28 6v9h9" fill="#dfe5e8" stroke="#9aa5ab" stroke-width="2"/><path d="M20 24l-4 5 4 5M28 24l4 5-4 5" fill="none" stroke="#e8710a" stroke-width="2.500" stroke-linecap="round" stroke-linejoin="round"/>'],
   terminal: ['#2e3436', '<rect x="7" y="9" width="34" height="30" rx="3" fill="#1b1e20" stroke="#8fa876" stroke-width="2"/><path d="M13 19l7 5-7 5" fill="none" stroke="#8fa876" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 31h10" stroke="#fff" stroke-width="3" stroke-linecap="round"/>'],
+  chromium: ['#f1f3f4', '<circle cx="24" cy="24" r="16" fill="#db4437"/><path d="M24 24L10 16a16 16 0 0114-8z" fill="#db4437"/><path d="M24 24l14 0a16 16 0 01-14 16z" fill="#f4b400"/><path d="M24 24L10 32a16 16 0 01-.1-16z" fill="#0f9d58"/><circle cx="24" cy="24" r="7" fill="#fff"/><circle cx="24" cy="24" r="5" fill="#4285f4"/>'],
+  cyberpatriot: ['#0f2a4a', '<path d="M24 6l15 5v11c0 9-6 16-15 20C15 38 9 31 9 22V11z" fill="#fff"/><path d="M24 9.500l12 4v8.500c0 7.500-5 13.500-12 16.500C17 35.500 12 29.500 12 22v-8.500z" fill="#1f4e8c"/><path d="M24 14l2.400 5.100 5.600.7-4.100 3.900 1 5.500L24 26.400 19.100 29.200l1-5.500-4.100-3.900 5.600-.7z" fill="#f2c230"/>'],
   firefox: ['#2b3a67', '<circle cx="24" cy="24" r="15" fill="#ff9500"/><path d="M24 9c8 0 15 6 15 15s-7 15-15 15" fill="#e8421c" opacity=".75"/><circle cx="24" cy="24" r="9" fill="#3a5bd9"/><path d="M15 24h18M24 15c-4 5-4 13 0 18M24 15c4 5 4 13 0 18" stroke="#fff" stroke-width="1.600" fill="none" opacity=".85"/>'],
   gear: ['#6c7a89', '<path d="M24 14a10 10 0 100 20 10 10 0 000-20zm0 6.500a3.500 3.500 0 110 7 3.500 3.500 0 010-7z" fill="#fff"/><g stroke="#fff" stroke-width="5" stroke-linecap="round"><path d="M24 7v5M24 36v5M7 24h5M36 24h5M12 12l3.500 3.500M32.500 32.500L36 36M36 12l-3.500 3.500M15.500 32.500L12 36"/></g>'],
   shield: ['#3f8f5b', '<path d="M24 6l15 5v11c0 9-6 16-15 20C15 38 9 31 9 22V11z" fill="#fff"/><path d="M17 24l5 5 9-10" fill="none" stroke="#3f8f5b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'],
@@ -45,10 +47,15 @@ const ALIAS = {
   'org.gnome.SystemMonitor': 'pulse', 'utilities-system-monitor': 'pulse', 'system-users': 'users', 'user-info': 'users', 'cs-user': 'users', 'cs-login': 'login', 'preferences-system-login': 'login',
   'system-run': 'startup', 'cs-startup-programs': 'startup', 'audio-x-generic': 'music', 'video-x-generic': 'video', 'image-x-generic': 'image', 'network-wireless': 'net', 'network-wired': 'net', 'audio-volume-high': 'volume',
   'system-shutdown': 'power', 'system-lock-screen': 'lock', 'system-log-out': 'logout', 'drive-harddisk': 'disk', 'printer': 'printer', 'accessories-calculator': 'calc', 'gnome-calculator': 'calc', 'thunderbird': 'mail',
-  'dialog-warning': 'warn', 'dialog-information': 'info', 'dialog-error': 'error', 'dialog-question': 'question', 'dialog-password': 'key', 'text-x-script': 'text', firefox: 'firefox',
+  'dialog-warning': 'warn', 'dialog-information': 'info', 'dialog-error': 'error', 'dialog-question': 'question', 'dialog-password': 'key', 'text-x-script': 'text', firefox: 'firefox', chromium: 'chromium',
 };
 
+let customLogo = null;
+/** Use a user-supplied image (e.g. assets/cyberpatriot-logo.png) for the CyberPatriot icon. */
+export function setCustomLogo(url) { customLogo = url; }
+
 export function iconSvg(name, size = 32) {
+  if (name === 'cyberpatriot' && customLogo) return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><image href="${customLogo}" x="0" y="0" width="48" height="48" preserveAspectRatio="xMidYMid meet"/></svg>`;
   const key = G[name] ? name : ALIAS[name] || 'app';
   const [bg, body] = G[key];
   const tile = ['folder', 'folder-open', 'file', 'text', 'html', 'info', 'error', 'question', 'warn'].includes(key) && key !== 'folder' && key !== 'folder-open' ? '' : `<rect x="1" y="1" width="46" height="46" rx="10" fill="${bg}"/>`;
@@ -64,6 +71,7 @@ export function icon(name, size = 32) {
 }
 export function fileIconName(name, isDir) {
   if (isDir) return 'folder';
+  if (/^Forensics Question \d+\.txt$/i.test(name) || /^(README|Scenario README|ScoringReport|Scoring Report)(\.(html?|txt|desktop))?$/i.test(name)) return 'cyberpatriot';
   if (/\.(mp3|ogg|wav|flac|m4a)$/i.test(name)) return 'music';
   if (/\.(mp4|mkv|avi|mov|webm)$/i.test(name)) return 'video';
   if (/\.(png|jpe?g|gif|bmp|svg)$/i.test(name)) return 'image';

@@ -1,6 +1,6 @@
 // Boot the simulator: restore or build the machine, start scoring, show the desktop.
 import { h, clear } from './ui/dom.js';
-import { icon } from './ui/icons.js';
+import { icon, setCustomLogo } from './ui/icons.js';
 import { WindowManager } from './ui/wm.js';
 import { UI } from './ui/dialogs.js';
 import { Desktop } from './ui/desktop.js';
@@ -42,6 +42,8 @@ async function main() {
   if (!sys) sys = scenario.createMachine({});
   sys.dirty = false;
 
+  // Optional: drop your own logo at assets/cyberpatriot-logo.png and it replaces the built-in badge icon.
+  await new Promise((res) => { const im = new Image(); im.onload = () => { setCustomLogo('assets/cyberpatriot-logo.png'); res(); }; im.onerror = res; im.src = 'assets/cyberpatriot-logo.png'; });
   const ui = new UI({ overlay: document.getElementById('overlay'), toasts: document.getElementById('toasts'), sys });
   ui.soundOn = settings.sound;
   const wm = new WindowManager(document.getElementById('winlayer'));
@@ -146,10 +148,10 @@ function showWelcome(env) {
     h('div', { class: 'db' }, icon('shield', 56), h('div', { class: 'txt' },
       h('h3', null, `${env.scenario.title} — ${env.scenario.imageName}`),
       h('p', null, 'This is a practice simulator for CyberPatriot-style Linux hardening. Everything runs in your browser: the desktop, the terminal and the scoring.'),
-      h('p', null, 'Start by opening the “Scenario README” on the desktop, then secure the computer. Open the “Scoring Report” to see your points. You can answer the three Forensics Questions by editing the files on the desktop.'),
+      h('p', null, 'Start by opening the “Scenario README” on the desktop, then secure the computer. Open the “Scoring Report” to see your points. You can answer the two Forensics Questions by editing the files on the desktop.'),
       h('p', null, h('b', null, 'Your login: '), `${env.scenario.user} / ${env.scenario.password}`),
       h('p', { style: { fontSize: '12px', color: '#6c7378' } }, 'Progress is saved in this browser. Use the chart icon in the panel for hints, scoring speed and reset.'))),
-    h('div', { class: 'df' }, h('button', { class: 'btn primary', onclick: () => { done(true); env.openApp('firefox', { args: ['file:///opt/cpsim/README.html'] }); } }, 'Open the README'), h('button', { class: 'btn', onclick: () => done(true) }, 'Start')),
+    h('div', { class: 'df' }, h('button', { class: 'btn primary', onclick: () => { done(true); env.openApp('chromium', { args: ['file:///opt/CyberPatriot/README.html'] }); } }, 'Open the README'), h('button', { class: 'btn', onclick: () => done(true) }, 'Start')),
   ));
 }
 

@@ -35,7 +35,7 @@ h1{font-size:26px;margin:.2em 0 .1em}h2{font-size:18px;margin:1.6em 0 .3em;borde
 <ul><li><b>OpenSSH server</b> (<code>ssh</code>) must be running and enabled at boot. Remote administration depends on it, so lock it down rather than turn it off.</li></ul>
 
 <h2>Critical Programs</h2>
-<ul><li><b>Mozilla Firefox</b> is the company's required web browser and must stay installed and up to date.</li></ul>
+<ul><li><b>Chromium</b> is the company's required web browser and must stay installed and up to date.</li></ul>
 
 <h2>Company Policy</h2>
 <ul>

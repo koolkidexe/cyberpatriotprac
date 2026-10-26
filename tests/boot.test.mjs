@@ -20,5 +20,5 @@ test('shell basics: ps, ufw, apt', async () => {
   const { run } = makeEnv();
   assert.match(String(await run('ps aux')), /USER/);
   assert.match(String(await run('sudo ufw status', 'Student#Mint21')), /inactive/);
-  assert.match(String(await run('apt list --upgradable')), /firefox|Listing/);
+  assert.match(String(await run('apt list --upgradable')), /chromium|Listing/);
 });

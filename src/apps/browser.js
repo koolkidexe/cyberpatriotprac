@@ -1,4 +1,4 @@
-// Firefox-style browser: tabs, URL bar, file:// pages from the virtual FS, live Scoring Report.
+// Browser (Chromium look by default, Firefox when launched as firefox): tabs, URL bar, file:// pages from the virtual FS, live Scoring Report.
 import { h, clear, esc } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { FsView, FsError } from '../core/vfs.js';
@@ -7,7 +7,7 @@ import { reportHtml } from '../ui/report.js';
 
 const START = 'about:home';
 const errPage = (title, body) => `<!doctype html><meta charset=utf-8><style>body{font-family:system-ui,sans-serif;background:#f9f9fa;color:#15141a;display:flex;justify-content:center;padding-top:12vh}div{max-width:560px}h1{font-size:26px;font-weight:400}li{margin:6px 0}button{padding:6px 18px;background:#0060df;color:#fff;border:0;border-radius:4px}</style><div><h1>${esc(title)}</h1>${body}</div>`;
-const homePage = `<!doctype html><meta charset=utf-8><style>body{font-family:system-ui,sans-serif;background:#f9f9fa;color:#15141a;text-align:center;padding-top:16vh}h1{font-weight:300;font-size:34px;color:#20123a}input{width:420px;padding:10px 14px;border-radius:6px;border:1px solid #b1b1b3;font-size:15px}p{color:#5b5b66}</style><h1>Firefox</h1><input placeholder="Search with DuckDuckGo or enter address" disabled><p>This is a simulated browser. Try <code>file:///opt/cpsim/README.html</code>.</p>`;
+const homePage = `<!doctype html><meta charset=utf-8><style>body{font-family:system-ui,sans-serif;background:#f9f9fa;color:#15141a;text-align:center;padding-top:16vh}h1{font-weight:300;font-size:34px;color:#20123a}input{width:420px;padding:10px 14px;border-radius:6px;border:1px solid #b1b1b3;font-size:15px}p{color:#5b5b66}</style><h1>New Tab</h1><input placeholder="Search with DuckDuckGo or enter address" disabled><p>This is a simulated browser. Try <code>file:///opt/CyberPatriot/README.html</code>.</p>`;
 
 export function open(env, opts = {}) {
   const sys = env.sys;
@@ -20,21 +20,23 @@ export function open(env, opts = {}) {
   const mk = (t, title, fn) => h('button', { class: 'btn', title, style: { minWidth: '30px', padding: '2px 8px' }, onclick: fn }, t);
   const bBack = mk('◀', 'Back', () => { if (cur && cur.pos > 0) { cur.pos--; load(cur); } });
   const bFwd = mk('▶', 'Forward', () => { if (cur && cur.pos < cur.hist.length - 1) { cur.pos++; load(cur); } });
-  const nav_ = h('div', { class: 'ff-nav' }, bBack, bFwd, mk('⟳', 'Reload', () => cur && load(cur)), url, mk('≡', 'Menu', (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left - 120, r.bottom, [{ label: 'New Tab', action: () => newTab(START) }, { label: 'Scoring Report', action: () => newTab('file:///opt/cpsim/ScoreReport.html') }, { label: 'Scenario README', action: () => newTab('file:///opt/cpsim/README.html') }]); }));
+  const nav_ = h('div', { class: 'ff-nav' }, bBack, bFwd, mk('⟳', 'Reload', () => cur && load(cur)), url, mk('≡', 'Menu', (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left - 120, r.bottom, [{ label: 'New Tab', action: () => newTab(START) }, { label: 'Scoring Report', action: () => newTab('file:///opt/CyberPatriot/ScoringReport.html') }, { label: 'Scenario README', action: () => newTab('file:///opt/CyberPatriot/README.html') }]); }));
   const stage = h('div', { style: { flex: 1, display: 'flex', minHeight: 0 } });
-  const content = h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, tabBar, nav_, stage);
-  const win = env.wm.open({ title: 'Mozilla Firefox', icon: 'firefox', width: 900, height: 600, appId: 'firefox', content });
+  const content = h('div', { class: opts.app === 'firefox' ? '' : 'chr', style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, tabBar, nav_, stage);
+  const brand = opts.app === 'firefox' ? 'Mozilla Firefox' : 'Chromium';
+  const bicon = opts.app === 'firefox' ? 'firefox' : 'chromium';
+  const win = env.wm.open({ title: brand, icon: bicon, width: 900, height: 600, appId: bicon, content });
   const unsub = env.engine.on('evaluated', () => { for (const t of tabs) if (t.live) load(t, true); });
   win.onClose(() => unsub());
 
   function page(t) {
     const u = t.hist[t.pos];
     if (u === 'about:home' || u === 'about:newtab' || u === 'about:blank') return { title: u === 'about:blank' ? 'about:blank' : 'New Tab', html: u === 'about:blank' ? '' : homePage };
-    if (u === 'about:preferences') return { title: 'Settings', html: errPage('Settings', '<p>Firefox preferences are not part of the simulated competition surface.</p>') };
+    if (u === 'about:preferences') return { title: 'Settings', html: errPage('Settings', '<p>Browser settings are not part of the simulated competition surface.</p>') };
     const m = /^file:\/\/(\/.*)$/.exec(u);
     if (m) {
       const p = decodeURIComponent(m[1]);
-      if (p === '/opt/cpsim/ScoreReport.html') { t.live = true; return { title: 'Scoring Report', html: reportHtml(env.engine.report(), { mode: env.settings.mode }) }; }
+      if (p === '/opt/CyberPatriot/ScoringReport.html') { t.live = true; return { title: 'CCS Scoring Report', html: reportHtml(env.engine.report(), { mode: env.settings.mode }) }; }
       t.live = false;
       try {
         if (fs.isDir(p)) { const names = fs.readdir(p); return { title: `Index of ${p}`, html: errPage(`Index of ${p}`, `<ul>${names.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`) }; }
@@ -53,7 +55,7 @@ export function open(env, opts = {}) {
   function load(t, soft) {
     const pg = page(t);
     t.title = pg.title; t.iframe.srcdoc = pg.html;
-    if (t === cur) { url.value = t.hist[t.pos] === 'about:home' ? '' : t.hist[t.pos]; win.setTitle(`${pg.title} — Mozilla Firefox`); bBack.disabled = t.pos <= 0; bFwd.disabled = t.pos >= t.hist.length - 1; }
+    if (t === cur) { url.value = t.hist[t.pos] === 'about:home' ? '' : t.hist[t.pos]; win.setTitle(`${pg.title} ${opts.app === 'firefox' ? '—' : '-'} ${brand}`); bBack.disabled = t.pos <= 0; bFwd.disabled = t.pos >= t.hist.length - 1; }
     drawTabs();
     void soft;
   }
@@ -78,7 +80,7 @@ export function open(env, opts = {}) {
   }
   function drawTabs() {
     clear(tabBar);
-    for (const t of tabs) tabBar.append(h('div', { class: 'ff-tab' + (t === cur ? ' on' : ''), onclick: () => sel(t) }, icon('firefox', 14), h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, t.title), h('span', { class: 'x', onclick: (e) => { e.stopPropagation(); closeTab(t); } }, '×')));
+    for (const t of tabs) tabBar.append(h('div', { class: 'ff-tab' + (t === cur ? ' on' : ''), onclick: () => sel(t) }, icon(bicon, 14), h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, t.title), h('span', { class: 'x', onclick: (e) => { e.stopPropagation(); closeTab(t); } }, '×')));
     tabBar.append(h('div', { class: 'ff-tab', style: { minWidth: 0, background: 'transparent' }, onclick: () => newTab(START) }, '+'));
   }
   const first = (opts.args || []).filter((a) => !a.startsWith('-'));

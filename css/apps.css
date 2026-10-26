@@ -76,3 +76,10 @@
 .ff-tab .x { margin-left: auto; opacity: .6; padding: 0 3px; }
 .ff-tab .x:hover { background: #bbb; border-radius: 3px; }
 .ff-nav { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: #f9f9fb; border-bottom: 1px solid #d0d0d4; flex: none; }
+
+/* chromium skin */
+.chr .ff-tabs { background: #dee1e6; }
+.chr .ff-tab { background: transparent; }
+.chr .ff-tab.on { background: #fff; }
+.chr .ff-nav { background: #fff; }
+.chr .urlbar { background: #f1f3f4 !important; border-color: transparent !important; }

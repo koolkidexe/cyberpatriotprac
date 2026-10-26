@@ -31,7 +31,6 @@ function replaceInFile(sys, path, re, to) {
 const FQ = [
   { n: 1, answer: 'Bluebird-2291', text: 'A user left a note somewhere in /home with the password for the company FTP server.\nWhat is that password?' },
   { n: 2, answer: 'PINEAPPLE-47', text: 'The file /home/alex/Documents/message.b64 holds a Base64-encoded message.\nDecode it. What is the secret codeword?' },
-  { n: 3, answer: '4444', text: 'Something on this computer is listening for incoming connections that should not be.\nWhat is the TCP port number of the backdoor listener?' },
 ];
 
 function apply(sys) {
@@ -97,11 +96,11 @@ function apply(sys) {
 
   // ---- the competitor's desktop -----------------------------------------------------------
   const desk = '/home/student/Desktop';
-  v.mkdir('/opt/cpsim', { parents: true, mode: 0o755 });
-  v.writeFile('/opt/cpsim/README.html', readmeHtml(), { mode: 0o644, uid: 0, gid: 0 });
-  v.writeFile('/opt/cpsim/ScoreReport.html', '<html><body>Scoring report (live; open it from the Desktop shortcut)</body></html>', { mode: 0o644, uid: 0, gid: 0 });
-  put(sys, 'student', `${desk}/Scenario README.desktop`, '[Desktop Entry]\nType=Application\nName=Scenario README\nExec=firefox file:///opt/cpsim/README.html\nIcon=text-html\nTerminal=false\n', { mode: 0o755 });
-  put(sys, 'student', `${desk}/Scoring Report.desktop`, '[Desktop Entry]\nType=Application\nName=Scoring Report\nExec=firefox file:///opt/cpsim/ScoreReport.html\nIcon=preferences-system\nTerminal=false\n', { mode: 0o755 });
+  v.mkdir('/opt/CyberPatriot', { parents: true, mode: 0o755 });
+  v.writeFile('/opt/CyberPatriot/README.html', readmeHtml(), { mode: 0o644, uid: 0, gid: 0 });
+  v.writeFile('/opt/CyberPatriot/ScoringReport.html', '<html><body>Scoring report (live; open it from the Desktop shortcut)</body></html>', { mode: 0o644, uid: 0, gid: 0 });
+  put(sys, 'student', `${desk}/Scenario README.desktop`, '[Desktop Entry]\nType=Application\nName=Scenario README\nExec=chromium file:///opt/CyberPatriot/README.html\nIcon=cyberpatriot\nTerminal=false\n', { mode: 0o755 });
+  put(sys, 'student', `${desk}/Scoring Report.desktop`, '[Desktop Entry]\nType=Application\nName=Scoring Report\nExec=chromium file:///opt/CyberPatriot/ScoringReport.html\nIcon=cyberpatriot\nTerminal=false\n', { mode: 0o755 });
   for (const q of FQ) {
     put(sys, 'student', `${desk}/Forensics Question ${q.n}.txt`, `FORENSICS QUESTION ${q.n}\n\n${q.text}\n\nType your answer after "ANSWER:" below and save this file.\n\nANSWER: \n`, { mode: 0o644 });
   }
@@ -111,14 +110,14 @@ function apply(sys) {
 
 // ---------------------------------------------------------------- scoring definitions
 const fq = (q) => ({
-  id: `fq${q.n}`, category: 'Forensics', points: 5, title: `Forensics Question ${q.n} correct`,
+  id: `fq${q.n}`, category: 'Forensics', points: 8, title: `Forensics Question ${q.n} correct`,
   check: (sys) => K.answerOf(sys, `/home/student/Desktop/Forensics Question ${q.n}.txt`).toLowerCase() === q.answer.toLowerCase(),
 });
 
 const gone = (id, path, title, pts, category = 'Prohibited Files') => ({ id, category, points: pts, title, check: (s) => !s.vfs.exists(path) });
 
 export const vulns = [
-  fq(FQ[0]), fq(FQ[1]), fq(FQ[2]),
+  fq(FQ[0]), fq(FQ[1]),
   { id: 'rm-kali', category: 'User Auditing', points: 3, title: 'Removed unauthorized user kali', check: (s) => !users.getUser(s, 'kali') },
   { id: 'rm-zerocool', category: 'User Auditing', points: 3, title: 'Removed unauthorized user zerocool', check: (s) => !users.getUser(s, 'zerocool') },
   { id: 'rm-toor', category: 'User Auditing', points: 3, title: 'Removed hidden UID 0 account toor', check: (s) => !users.getUser(s, 'toor') },
@@ -134,13 +133,13 @@ export const vulns = [
   { id: 'sudo-auth', category: 'Account Policy', points: 3, title: 'sudo requires a password', check: (s) => !K.sudoNeedsNoPassword(s) },
   { id: 'ufw', category: 'Defensive Countermeasures', points: 4, title: 'Firewall protection has been enabled', check: (s) => ufwActive(s) },
   { id: 'auto-upd', category: 'Defensive Countermeasures', points: 3, title: 'Automatic checking for updates is enabled', check: (s) => K.aptPeriodic(s, 'Update-Package-Lists') >= 1 },
-  { id: 'upd-firefox', category: 'Defensive Countermeasures', points: 3, title: 'Firefox has been updated', check: (s) => pk.isInstalled(s, 'firefox') && compareVersions(pk.installedVersion(s, 'firefox'), pk.def('firefox').avail) >= 0 },
+  { id: 'upd-chromium', category: 'Defensive Countermeasures', points: 3, title: 'Chromium has been updated', check: (s) => pk.isInstalled(s, 'chromium') && compareVersions(pk.installedVersion(s, 'chromium'), pk.def('chromium').avail) >= 0 },
   { id: 'ssh-root', category: 'Application Security', points: 4, title: 'SSH root login has been disabled', check: (s) => ['no', 'prohibit-password', 'without-password', 'forced-commands-only'].includes(K.sshdValue(s, 'PermitRootLogin')) && pk.isInstalled(s, 'openssh-server') },
   { id: 'ssh-empty', category: 'Application Security', points: 3, title: 'SSH does not permit empty passwords', check: (s) => K.sshdValue(s, 'PermitEmptyPasswords') === 'no' && pk.isInstalled(s, 'openssh-server') },
   { id: 'syncookies', category: 'Application Security', points: 2, title: 'IPv4 TCP SYN cookies have been enabled', check: (s) => K.sysctlConfValue(s, 'net.ipv4.tcp_syncookies') === '1' },
   { id: 'ftp-off', category: 'Service Auditing', points: 3, title: 'FTP service has been disabled or removed', check: (s) => K.serviceOff(s, 'vsftpd', 'vsftpd') },
   { id: 'smb-off', category: 'Service Auditing', points: 3, title: 'Samba service has been disabled or removed', check: (s) => K.serviceOff(s, 'smbd', 'samba') && K.serviceOff(s, 'nmbd', 'samba') },
-  { id: 'rm-john', category: 'Prohibited Software', points: 3, title: 'Prohibited software John the Ripper removed', check: (s) => !pk.isInstalled(s, 'john') },
+  { id: 'rm-john', category: 'Prohibited Software', points: 2, title: 'Prohibited software John the Ripper removed', check: (s) => !pk.isInstalled(s, 'john') },
   { id: 'rm-wireshark', category: 'Prohibited Software', points: 2, title: 'Prohibited software Wireshark removed', check: (s) => !pk.isInstalled(s, 'wireshark') },
   { id: 'rm-media', category: 'Prohibited Files', points: 2, title: 'Removed prohibited media files', check: (s) => !s.vfs.exists('/home/riley/Music/summer_mix.mp3') && !s.vfs.exists('/home/alex/Videos/movie_night.mp4') },
   gone('rm-passwords', '/home/morgan/Documents/passwords.txt', 'Removed plaintext password file', 3),
@@ -154,7 +153,7 @@ export const penalties = [
   ...[STUDENT.name, DANA.name, ...AUTHORIZED_USERS].map((name) => ({ id: `auth-${name}`, points: 5, title: `Authorized user ${name} was removed`, check: (s) => !users.getUser(s, name) })),
   { id: 'student-sudo', points: 5, title: 'Authorized administrator student lost administrator rights', check: (s) => !!users.getUser(s, 'student') && !users.isAdmin(s, 'student') },
   { id: 'ssh-crit', points: 5, title: 'Critical service OpenSSH is stopped, disabled or removed', check: (s) => !pk.isInstalled(s, 'openssh-server') || !sv.isActive(s, 'ssh') || !sv.isEnabled(s, 'ssh') },
-  { id: 'firefox-crit', points: 5, title: 'Required program Firefox was removed', check: (s) => !pk.isInstalled(s, 'firefox') },
+  { id: 'chromium-crit', points: 5, title: 'Required program Chromium was removed', check: (s) => !pk.isInstalled(s, 'chromium') },
 ];
 
 export default {
@@ -162,7 +161,7 @@ export default {
   title: 'Mint Practice Round 1',
   image: 'mint21',
   imageName: 'Linux Mint 21.3 Cinnamon',
-  teamId: 'PRACTICE-01',
+  teamId: 'MNT2-1R01-PRAC',
   user: 'student',
   password: STUDENT.password,
   readmeHtml,

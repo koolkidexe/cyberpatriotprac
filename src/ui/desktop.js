@@ -95,7 +95,7 @@ export class Desktop {
     this.showPopup(null, [h('h4', null, 'CyberPatriot Simulator'),
       row('Scoring updates', sel), row('Sounds', snd),
       row('Hint', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.hint(); } }, 'Show hint')),
-      row('Score report', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.openApp('firefox', { args: ['file:///opt/cpsim/ScoreReport.html'] }); } }, 'Open')),
+      row('Score report', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.openApp('chromium', { args: ['file:///opt/CyberPatriot/ScoringReport.html'] }); } }, 'Open')),
       row('Start over', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.reset(); } }, 'Reset image…')),
       h('div', { style: { fontSize: '11px', color: '#9aa0a4', marginTop: '6px' } }, 'Practice tool — not the real scoring engine.')], 104);
   }
