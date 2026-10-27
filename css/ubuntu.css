@@ -1,0 +1,156 @@
+/* Ubuntu 22.04 (GNOME Shell / Yaru) skin, active when <body class="os-ubuntu"> */
+body.os-ubuntu {
+  --accent: #e95420; --accent-dark: #c34113; --folder: var(--accent); --panel: #000; --panel-hi: #2a2a2a; --win-bg: #fafafa; --text: #2d2d2d;
+  --font: "Ubuntu", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
+}
+.os-ubuntu #desktop { inset: 28px 0 0 0; background: radial-gradient(1300px 800px at 80% 0%, #e0642f 0%, #a8316b 28%, #5b1f5e 55%, #2c001e 100%); }
+.os-ubuntu #desktop::after { background: radial-gradient(900px 500px at 15% 100%, rgba(255,160,90,.18), transparent 70%); }
+.os-ubuntu #winlayer { inset: 28px 0 0 64px; }
+.os-ubuntu #icons { left: auto; right: 14px; top: 12px; flex-wrap: wrap-reverse; }
+
+/* top bar */
+.os-ubuntu #panel { top: 0; bottom: auto; height: 28px; background: #000; border: none; justify-content: space-between; align-items: center; color: #f2f2f2; font-size: 13px; }
+.os-ubuntu #menu-btn { height: 100%; padding: 0 14px; font-weight: 700; align-items: center; display: flex; border-radius: 0; }
+.os-ubuntu #clock { position: absolute; left: 50%; transform: translateX(-50%); height: 100%; display: flex; align-items: center; padding: 0 12px; border-radius: 14px; }
+.os-ubuntu #clock:hover { background: #2a2a2a; }
+.os-ubuntu #tray { display: flex; height: 100%; align-items: center; gap: 2px; margin-left: auto; padding-right: 6px; }
+.os-ubuntu #tray .ti { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 10px; border-radius: 12px; }
+.os-ubuntu #tray .ti:hover { background: #2a2a2a; }
+
+/* dock */
+#dock { display: none; }
+.os-ubuntu #dock { display: flex; flex-direction: column; gap: 4px; position: absolute; left: 0; top: 28px; bottom: 0; width: 64px; padding: 6px 0; background: rgba(28,18,32,.82); backdrop-filter: blur(6px); z-index: 8000; align-items: center; }
+.os-ubuntu #dock .di { position: relative; width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; border-radius: 10px; cursor: default; }
+.os-ubuntu #dock .di:hover { background: rgba(255,255,255,.14); }
+.os-ubuntu #dock .di.active { background: rgba(255,255,255,.2); }
+.os-ubuntu #dock .dots { position: absolute; left: 1px; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.os-ubuntu #dock .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); display: block; }
+.os-ubuntu #dock .dsep { width: 36px; height: 1px; background: rgba(255,255,255,.25); margin: 3px 0; }
+
+/* Activities app grid */
+.os-ubuntu #menu { position: absolute; left: 64px; top: 28px; right: 0; bottom: 0; width: auto; height: auto; background: rgba(32,12,36,.94); border: none; border-radius: 0; z-index: 7500; display: none; flex-direction: column; align-items: center; padding-top: 26px; overflow: hidden; }
+.os-ubuntu #menu.open { display: flex; }
+.os-ubuntu #menu .search { width: 420px; max-width: 80%; margin-bottom: 22px; }
+.os-ubuntu #menu .search input { width: 100%; box-sizing: border-box; padding: 9px 16px; border-radius: 22px; border: 1px solid #5c3a60; background: #2a1030; color: #fff; font-size: 14px; outline: none; }
+.os-ubuntu #menu .search input:focus { border-color: var(--accent); }
+.os-ubuntu #menu .grid { display: grid; grid-template-columns: repeat(auto-fill, 118px); gap: 18px 14px; justify-content: center; width: 100%; max-width: 980px; overflow-y: auto; padding: 4px 20px 30px; box-sizing: border-box; }
+.os-ubuntu #menu .app { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: 10px; color: #f0e8f2; text-align: center; cursor: default; }
+.os-ubuntu #menu .app:hover { background: rgba(255,255,255,.14); }
+.os-ubuntu #menu .app .nm { font-size: 12px; line-height: 1.2; }
+.os-ubuntu #menu .empty { color: #bbb; grid-column: 1 / -1; text-align: center; }
+
+/* windows: Yaru header bars */
+.os-ubuntu .win { border-radius: 10px 10px 0 0; border: 1px solid #5d5d5d; }
+.os-ubuntu .win.max { border-radius: 0; }
+.os-ubuntu .win .title { background: linear-gradient(#e8e8e7, #dbdad8); border-bottom: 1px solid #c7c4c0; height: 34px; }
+.os-ubuntu .win.inactive .title { background: #eeeeec; }
+.os-ubuntu .win .wb { gap: 8px; }
+.os-ubuntu .win .wb button { background: #cfcdca; border: none; color: #333; width: 20px; height: 20px; }
+.os-ubuntu .win .wb button:hover { background: #bdbab6; }
+.os-ubuntu .win .wb button.x { background: var(--accent); color: #fff; }
+.os-ubuntu .win .wb button.x:hover { background: var(--accent-dark); color: #fff; }
+
+/* accent colour for widgets that hard-code Mint green */
+.os-ubuntu button.btn.primary { background: linear-gradient(#ee6a3a, var(--accent)); border-color: var(--accent-dark); }
+.os-ubuntu .dicon.sel { background: color-mix(in srgb, var(--accent) 50%, transparent); border-color: rgba(255,170,130,.8); }
+.os-ubuntu table.grid tr:hover:not(.sel) td { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.os-ubuntu .fm-side .pl:hover, .os-ubuntu .tile:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.os-ubuntu .sw.on { background: var(--accent); }
+.os-ubuntu .badge.green { background: color-mix(in srgb, var(--accent) 30%, var(--surface)); }
+
+/* popups drop from the top bar */
+.os-ubuntu .popup { top: 32px; bottom: auto; border-radius: 12px; background: #1d1d1d; border: 1px solid #333; box-shadow: 0 8px 24px rgba(0,0,0,.5); min-width: 260px; }
+.os-ubuntu .popup .row.clk { padding: 7px 8px; border-radius: 6px; }
+.os-ubuntu .popup .row.clk:hover { background: #333; }
+.os-ubuntu .popup hr { border: none; border-top: 1px solid #333; margin: 6px 0; }
+.os-ubuntu #toasts { top: 36px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%); }
+.os-ubuntu .toast { border-left: none; border-top: 3px solid var(--accent); }
+.os-ubuntu .toast.bad { border-top-color: #d9534f; }
+.os-ubuntu .toast.info { border-top-color: #3b7dd8; }
+.os-ubuntu #boot .bar i { background: var(--accent); }
+.os-ubuntu #tray .ti { width: auto; min-width: 26px; height: 22px; }
+.os-ubuntu #menu { z-index: 8500; }
+.os-ubuntu #dock { z-index: 8800; }
+.os-ubuntu #menu .search { border: none; background: none; padding: 0; }
+.os-ubuntu #clock { flex-direction: row; font-size: 13px; }
+
+/* ---- dock extras */
+.os-ubuntu #dock .dsp { flex: 1; }
+.os-ubuntu #appname { display: flex; align-items: center; height: 100%; padding: 0 8px; font-weight: 400; white-space: nowrap; }
+
+/* ---- dock position (Settings → Appearance → Position on screen) */
+body.os-ubuntu.dock-bottom #winlayer { inset: 28px 0 72px 0; }
+body.os-ubuntu.dock-bottom #dock { flex-direction: row; left: 50%; right: auto; top: auto; bottom: 5px; width: auto; height: 62px; padding: 0 10px; transform: translateX(-50%); border-radius: 16px; border: 1px solid rgba(255,255,255,.08); }
+body.os-ubuntu.dock-bottom #dock .dots { left: 0; right: 0; top: auto; bottom: -1px; flex-direction: row; justify-content: center; }
+body.os-ubuntu.dock-bottom #dock .dsep { width: 1px; height: 36px; margin: 0 3px; }
+body.os-ubuntu.dock-bottom #dock .dsp { display: none; }
+body.os-ubuntu.dock-bottom #dock .showapps { order: -1; }
+body.os-ubuntu.dock-bottom #dock .trash { order: 50; }
+body.os-ubuntu.dock-bottom #menu { left: 0; bottom: 72px; }
+body.os-ubuntu.dock-right #winlayer { inset: 28px 64px 0 0; }
+body.os-ubuntu.dock-right #dock { left: auto; right: 0; }
+body.os-ubuntu.dock-right #dots, body.os-ubuntu.dock-right #dock .dots { left: auto; right: 1px; }
+body.os-ubuntu.dock-right #menu { left: 0; right: 64px; }
+body.os-ubuntu.dock-right #icons { right: 78px; }
+
+/* ---- Files header (Nautilus style path bar) */
+.os-ubuntu .pathbar { display: flex; align-items: center; flex: 1; min-width: 0; background: color-mix(in srgb, var(--text) 8%, var(--surface)); border: 1px solid var(--line); border-radius: 7px; padding: 2px; gap: 1px; overflow: hidden; }
+.os-ubuntu .pathbar .seg { padding: 3px 9px; border-radius: 5px; white-space: nowrap; cursor: default; display: flex; align-items: center; gap: 5px; }
+.os-ubuntu .pathbar .seg:hover { background: color-mix(in srgb, var(--text) 12%, transparent); }
+.os-ubuntu .pathbar .seg.cur { font-weight: 700; }
+.os-ubuntu .pathbar .sep { opacity: .5; }
+
+/* ---- accent-aware widgets */
+.os-ubuntu .sw.on, .os-ubuntu input.in:focus { border-color: var(--accent); }
+.os-ubuntu .accent-dots { display: flex; gap: 10px; flex-wrap: wrap; }
+.os-ubuntu .accent-dots .dot { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; border: 2px solid transparent; cursor: default; }
+.os-ubuntu .accent-dots .dot.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+.os-ubuntu .style-pick { display: flex; gap: 18px; }
+.os-ubuntu .style-pick .opt { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; border-radius: 10px; border: 2px solid var(--line); cursor: default; width: 130px; }
+.os-ubuntu .style-pick .opt.on { border-color: var(--accent); }
+.os-ubuntu .style-pick .prev { width: 106px; height: 64px; border-radius: 6px; border: 1px solid #888; position: relative; overflow: hidden; }
+.os-ubuntu .style-pick .prev i { position: absolute; left: 8px; top: 8px; right: 30px; height: 10px; border-radius: 3px; opacity: .5; background: currentColor; }
+.os-ubuntu .style-pick .prev b { position: absolute; left: 8px; bottom: 8px; width: 26px; height: 14px; border-radius: 4px; background: var(--accent); }
+.os-ubuntu .style-pick .prev.light { background: #fafafa; color: #333; }
+.os-ubuntu .style-pick .prev.dark { background: #2b2b2b; color: #ddd; }
+.os-ubuntu .opt-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); gap: 14px; }
+.os-ubuntu h3.sh { margin: 18px 0 8px; font-size: 13px; text-transform: none; opacity: .75; }
+
+/* ---- dark style (Settings → Appearance → Window colors: Dark) */
+body.os-ubuntu.ub-dark {
+  --win-bg: #2d2d2d; --text: #f1f1f1; --text-dim: #a9a9a9; --surface: #242424; --surface-2: #303030; --line: #454545; --border: #454545;
+}
+.ub-dark .win { border-color: #0e0e0e; }
+.ub-dark .win .title { background: linear-gradient(#3d3d3d, #353535); border-bottom: 1px solid #1c1c1c; color: #f1f1f1; }
+.ub-dark .win.inactive .title { background: #313131; color: #8f8f8f; }
+.ub-dark .win .wb button { background: #4b4b4b; color: #eee; }
+.ub-dark .win .wb button:hover { background: #5a5a5a; }
+.ub-dark button.btn { background: linear-gradient(#474747, #3b3b3b); border-color: #1d1d1d; color: #f1f1f1; }
+.ub-dark button.btn:hover { background: linear-gradient(#515151, #444); border-color: #111; }
+.ub-dark button.btn:active { background: #2c2c2c; }
+.ub-dark button.btn:disabled { color: #777; background: #333; border-color: #2a2a2a; }
+.ub-dark button.btn.primary { color: #fff; }
+.ub-dark input.in, .ub-dark select.in, .ub-dark textarea.in { background: #1e1e1e; border-color: #4a4a4a; color: #f1f1f1; }
+.ub-dark .toolbar, .ub-dark .statusbar, .ub-dark .menubar { background: #353535; border-color: #1f1f1f; }
+.ub-dark .tabs { background: #333; border-color: #1f1f1f; }
+.ub-dark .tabs .tab { background: #2a2a2a; border-color: #1f1f1f; }
+.ub-dark .ctxmenu, .ub-dark .dropmenu { background: #313131; border-color: #0f0f0f; color: #f1f1f1; }
+.ub-dark .ctxmenu .sep, .ub-dark .dropmenu .sep { background: #4a4a4a; }
+.ub-dark .ctxmenu .it.dis, .ub-dark .dropmenu .it.dis { color: #777; }
+.ub-dark table.grid { background: var(--surface); }
+.ub-dark table.grid th { background: #353535; border-color: #454545; color: #f1f1f1; }
+.ub-dark table.grid td { border-bottom-color: #303030; }
+.ub-dark .fm-side { background: #2a2a2a; border-color: #141414; }
+.ub-dark .fm-list { background: #242424; }
+.ub-dark .fm-side .pl:hover, .ub-dark .tile:hover { background: color-mix(in srgb, var(--accent) 22%, #2a2a2a); }
+.ub-dark .fm-grid .gi:hover:not(.sel) { background: color-mix(in srgb, var(--accent) 18%, #242424); }
+.ub-dark table.grid tr:hover:not(.sel) td { background: color-mix(in srgb, var(--accent) 18%, #242424); }
+.ub-dark .dlg { background: #2d2d2d; border-color: #0e0e0e; color: #f1f1f1; }
+.ub-dark .dlg .dt { background: linear-gradient(#3d3d3d, #353535); border-color: #1c1c1c; }
+.ub-dark .listbox { background: #242424; border-color: #454545; }
+.ub-dark .lockbar { background: #4a3f1c; border-color: #6a5a2a; color: #f1f1f1; }
+.ub-dark .badge { background: #474747; }
+.ub-dark .kv > .k { color: #aaa; }
+.ub-dark .xed-ta { background: #1e1e1e; color: #eee; }
+.ub-dark .sw { background: #5b5b5b; }
+.ub-dark .win.modal-parent { filter: brightness(.8); }

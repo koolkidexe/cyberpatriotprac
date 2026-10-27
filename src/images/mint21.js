@@ -2,7 +2,7 @@
 // A scenario then breaks it on purpose (see src/scenarios/*).
 import { System } from '../core/system.js';
 import * as C from './configs.js';
-import { PACKAGES, SERVICES } from './catalog.js';
+import { PACKAGES, SERVICES, applyDistro } from './catalog.js';
 import * as pk from '../core/packages.js';
 import * as sv from '../core/services.js';
 import * as users from '../core/users.js';
@@ -10,6 +10,7 @@ import { daysSinceEpoch, fmtSyslog } from '../core/util.js';
 import { sysctlPath, sysctlSet } from '../core/sysctl.js';
 
 export const IMAGE_ID = 'mint21';
+export const UBUNTU_IMAGE_ID = 'ubuntu22';
 export const KERNEL = '5.15.0-126-generic';
 
 const SYSTEM_GROUPS = [
@@ -139,7 +140,8 @@ function spawnBaseProcesses(sys) {
   mk({ cmd: '/lib/systemd/systemd-logind', comm: 'systemd-logind', stat: 'Ss' });
 }
 
-function spawnSession(sys) {
+function spawnSession(sys, distro = 'mint') {
+  if (distro === 'ubuntu') return spawnUbuntuSession(sys);
   const boot = sys.bootTime;
   const mk = (o) => { const p = sys.spawn({ user: 'student', ...o }); p.start = boot + 40000 + (o.delay || 0); return p; };
   sys.nextPid = 1150;
@@ -159,16 +161,58 @@ function spawnSession(sys) {
   return sh;
 }
 
-export function buildMint21({ now = () => Date.now(), rng = Math.random, hostname = 'mint' } = {}) {
+function spawnUbuntuSession(sys) {
+  const boot = sys.bootTime;
+  const mk = (o) => { const p = sys.spawn({ user: 'student', ...o }); p.start = boot + 40000 + (o.delay || 0); return p; };
+  sys.nextPid = 1150;
+  const xo = sys.spawn({ cmd: '/usr/lib/xorg/Xorg vt2 -displayfd 3 -auth /run/user/1000/gdm/Xauthority -nolisten tcp -background none -noreset -keeptty -novtswitch -verbose 3', comm: 'Xorg', user: 'student', tty: 'tty2', stat: 'Ssl+' });
+  xo.start = boot + 30000;
+  const wk = sys.spawn({ cmd: 'gdm-session-worker [pam/gdm-password]', comm: 'gdm-session-wor', stat: 'Sl' });
+  wk.start = boot + 38000;
+  const gs = mk({ cmd: '/usr/libexec/gnome-session-binary --session=ubuntu', comm: 'gnome-session-b', stat: 'Ssl' });
+  mk({ cmd: '/usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only', comm: 'dbus-daemon', stat: 'Ss', ppid: 1 });
+  mk({ cmd: '/usr/bin/gnome-shell', comm: 'gnome-shell', stat: 'Rsl', ppid: gs.pid, cpu: 3.4, mem: 6.1 });
+  mk({ cmd: '/usr/libexec/gsd-power', comm: 'gsd-power', stat: 'Sl', ppid: gs.pid });
+  mk({ cmd: '/usr/bin/nautilus --gapplication-service', comm: 'nautilus', stat: 'Ssl', ppid: 1, mem: 1.9 });
+  mk({ cmd: '/usr/bin/pipewire', comm: 'pipewire', stat: 'Ssl', ppid: 1 });
+  mk({ cmd: '/usr/bin/pulseaudio --daemonize=no --log-target=journal', comm: 'pulseaudio', stat: 'S<sl', ppid: 1 });
+  mk({ cmd: '/usr/libexec/gnome-terminal-server', comm: 'gnome-terminal-', stat: 'Ssl', ppid: 1, mem: 1.1 });
+  mk({ cmd: 'update-notifier', comm: 'update-notifier', stat: 'Sl', ppid: gs.pid });
+  return mk({ cmd: 'bash', comm: 'bash', tty: 'pts/0', stat: 'Ss', delay: 120000 });
+}
+
+const DISTROS = {
+  mint: {
+    imageId: IMAGE_ID, hostname: 'mint', os: () => C.OS_RELEASE, lsb: () => C.LSB_RELEASE, issue: 'Linux Mint 21.3 \\n \\l\n\n', issueNet: 'Linux Mint 21.3\n',
+    sources: () => C.SOURCES_LIST, sourcesPath: '/etc/apt/sources.list.d/official-package-repositories.list',
+    studentGroups: ['adm', 'cdrom', 'sudo', 'dip', 'plugdev', 'lpadmin', 'sambashare'],
+    dm: 'lightdm', dmDesc: 'Light Display Manager', dmUser: 'lightdm(uid=108)', tty: 'tty7',
+  },
+  ubuntu: {
+    imageId: UBUNTU_IMAGE_ID, hostname: 'ubuntu', os: () => C.OS_RELEASE_UBUNTU, lsb: () => C.LSB_RELEASE_UBUNTU, issue: 'Ubuntu 22.04.5 LTS \\n \\l\n\n', issueNet: 'Ubuntu 22.04.5 LTS\n',
+    sources: () => C.SOURCES_LIST_UBUNTU, sourcesPath: '/etc/apt/sources.list',
+    studentGroups: ['adm', 'cdrom', 'sudo', 'dip', 'plugdev', 'lxd', 'lpadmin', 'sambashare'],
+    dm: 'gdm', dmDesc: 'GNOME Display Manager', dmUser: 'gdm(uid=108)', tty: 'tty2',
+  },
+};
+
+export function buildMint21(opts = {}) { return buildImage({ ...opts, distro: 'mint' }); }
+export function buildUbuntu22(opts = {}) { return buildImage({ ...opts, distro: 'ubuntu' }); }
+
+export function buildImage({ now = () => Date.now(), rng = Math.random, hostname, distro = 'mint' } = {}) {
+  const D = DISTROS[distro];
+  hostname = hostname || D.hostname;
+  applyDistro(distro);
   const sys = new System({ now, rng, hostname });
+  sys.misc.distro = distro;
   const v = sys.vfs;
   const t0 = sys.now();
   const installed = t0 - 40 * 86400000;
   sys.bootTime = t0 - 47 * 60000;
-  sys.misc.image = IMAGE_ID;
+  sys.misc.image = D.imageId;
 
   // --- directory skeleton, usr-merge symlinks
-  for (const [p, m] of DIRS) if (p !== '/') v.mkdir(p, { parents: true, mode: m & 0o7777, uid: 0, gid: p === '/var/log' ? 4 : 0 });
+  for (const [p, m] of DIRS) if (p !== '/' && !(distro === 'ubuntu' && p.startsWith('/etc/lightdm'))) v.mkdir(p, { parents: true, mode: m & 0o7777, uid: 0, gid: p === '/var/log' ? 4 : 0 });
   v.root.mode = 0o755;
   for (const [l, t] of [['/bin', 'usr/bin'], ['/sbin', 'usr/sbin'], ['/lib', 'usr/lib'], ['/lib64', 'usr/lib64']]) v.symlink(t, l);
   v.mkdir('/usr/lib64', { mode: 0o755 });
@@ -176,13 +220,16 @@ export function buildMint21({ now = () => Date.now(), rng = Math.random, hostnam
   v.chown('/var/mail', 0, 8);
 
   // --- accounts
-  const gnames = new Map(SYSTEM_GROUPS.map(([n, g]) => [n, g]));
+  const UB_G = { lightdm: 'gdm', nopasswdlogin: 'lxd' };
+  const SYSTEM_GROUPS_D = distro === 'ubuntu' ? SYSTEM_GROUPS.map(([n, g]) => [UB_G[n] || n, g]) : SYSTEM_GROUPS;
+  const SYSTEM_USERS_D = distro === 'ubuntu' ? SYSTEM_USERS.map((u) => (u[0] === 'lightdm' ? ['gdm', 108, 109, 'Gnome Display Manager', '/var/lib/gdm3', '/bin/false'] : u)) : SYSTEM_USERS;
+  const gnames = new Map(SYSTEM_GROUPS_D.map(([n, g]) => [n, g]));
   const gmembers = { adm: ['syslog'], dialout: [], www_data: [] };
-  v.writeFile('/etc/group', SYSTEM_GROUPS.map(([n, g]) => `${n}:x:${g}:${(gmembers[n] || []).join(',')}`).join('\n') + '\n', { mode: 0o644 });
-  v.writeFile('/etc/gshadow', SYSTEM_GROUPS.map(([n]) => `${n}:!::${(gmembers[n] || []).join(',')}`).join('\n') + '\n', { mode: 0o640, gid: 42 });
-  v.writeFile('/etc/passwd', SYSTEM_USERS.map(([n, u, g, gecos, h, sh]) => `${n}:x:${u}:${g}:${gecos}:${h}:${sh}`).join('\n') + '\n', { mode: 0o644 });
+  v.writeFile('/etc/group', SYSTEM_GROUPS_D.map(([n, g]) => `${n}:x:${g}:${(gmembers[n] || []).join(',')}`).join('\n') + '\n', { mode: 0o644 });
+  v.writeFile('/etc/gshadow', SYSTEM_GROUPS_D.map(([n]) => `${n}:!::${(gmembers[n] || []).join(',')}`).join('\n') + '\n', { mode: 0o640, gid: 42 });
+  v.writeFile('/etc/passwd', SYSTEM_USERS_D.map(([n, u, g, gecos, h, sh]) => `${n}:x:${u}:${g}:${gecos}:${h}:${sh}`).join('\n') + '\n', { mode: 0o644 });
   const day = daysSinceEpoch(installed);
-  v.writeFile('/etc/shadow', SYSTEM_USERS.map(([n]) => `${n}:${n === 'root' ? '!' : '*'}:${day}:0:99999:7:::`).join('\n') + '\n', { mode: 0o640, gid: 42 });
+  v.writeFile('/etc/shadow', SYSTEM_USERS_D.map(([n]) => `${n}:${n === 'root' ? '!' : '*'}:${day}:0:99999:7:::`).join('\n') + '\n', { mode: 0o640, gid: 42 });
   void gnames;
 
   // --- skeleton + core config files (before any user home is created)
@@ -202,18 +249,18 @@ export function buildMint21({ now = () => Date.now(), rng = Math.random, hostnam
     ['mintlightdm-settings', 'Login Window', 'Configure the login window', 'pkexec lightdm-settings', 'System;Settings;', 'preferences-system-login'],
     ['system-config-printer', 'Print Settings', 'Configure printers', 'system-config-printer', 'System;Settings;', 'printer'],
   ];
-  for (const [file, name, comment, exec, cats, icon] of extraApps) {
+  for (const [file, name, comment, exec, cats, icon] of (distro === 'mint' ? extraApps : [])) {
     seedFile(sys, `/usr/share/applications/${file}.desktop`, `[Desktop Entry]\nName=${name}\nComment=${comment}\nExec=${exec}\nIcon=${icon}\nTerminal=false\nType=Application\nCategories=${cats}\n`);
   }
 
   // --- system configuration that is not owned by a package in the catalog
   seedFile(sys, '/etc/hostname', hostname + '\n');
   seedFile(sys, '/etc/hosts', C.HOSTS(hostname));
-  seedFile(sys, '/etc/os-release', C.OS_RELEASE);
+  seedFile(sys, '/etc/os-release', D.os());
   v.symlink('../etc/os-release', '/usr/lib/os-release');
-  seedFile(sys, '/etc/lsb-release', C.LSB_RELEASE);
-  seedFile(sys, '/etc/issue', 'Linux Mint 21.3 \\n \\l\n\n');
-  seedFile(sys, '/etc/issue.net', 'Linux Mint 21.3\n');
+  seedFile(sys, '/etc/lsb-release', D.lsb());
+  seedFile(sys, '/etc/issue', D.issue);
+  seedFile(sys, '/etc/issue.net', D.issueNet);
   seedFile(sys, '/etc/shells', C.SHELLS);
   seedFile(sys, '/etc/fstab', C.FSTAB);
   seedFile(sys, '/etc/nsswitch.conf', C.NSSWITCH);
@@ -237,17 +284,17 @@ export function buildMint21({ now = () => Date.now(), rng = Math.random, hostnam
   seedFile(sys, '/etc/pam.d/sudo', C.PAM_SUDO);
   seedFile(sys, '/etc/pam.d/su', C.PAM_SU);
   seedFile(sys, '/etc/apt/apt.conf.d/10periodic', C.APT_PERIODIC);
-  seedFile(sys, '/etc/apt/sources.list.d/official-package-repositories.list', C.SOURCES_LIST);
+  seedFile(sys, D.sourcesPath, D.sources());
   seedFile(sys, '/etc/sudoers.d/README', '#\n# As of Debian version 1.7.2p1-1, the default /etc/sudoers file created on\n# installation of the package now includes the directive:\n#\n# \t#includedir /etc/sudoers.d\n#\n# This will cause sudo to read and parse any files in the /etc/sudoers.d\n# directory that do not end in \'~\' or contain a \'.\' character.\n#\n# Note that there must be at least one file in the sudoers.d directory (this\n# one will do), and all files in this directory should be mode 0440.\n#\n', { mode: 0o440 });
   seedFile(sys, '/etc/cron.d/e2scrub_all', '30 3 * * 0 root test -e /run/systemd/system || SERVICE_MODE=1 /usr/lib/x86_64-linux-gnu/e2fsprogs/e2scrub_all_cron\n10 3 * * * root test -e /run/systemd/system || SERVICE_MODE=1 /sbin/e2scrub_all -A -r\n');
   for (const n of ['apt-compat', 'dpkg', 'logrotate', 'man-db']) seedFile(sys, `/etc/cron.daily/${n}`, `#!/bin/sh\n# ${n} daily job\nexit 0\n`, { mode: 0o755 });
   seedFile(sys, '/run/systemd/resolve/stub-resolv.conf', 'nameserver 127.0.0.53\n');
   seedFile(sys, '/etc/ssh/ssh_config', 'Include /etc/ssh/ssh_config.d/*.conf\n\nHost *\n    SendEnv LANG LC_*\n    HashKnownHosts yes\n    GSSAPIAuthentication yes\n');
-  seedFile(sys, '/etc/ssh/ssh_host_ed25519_key.pub', 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN3kQ2yPq0o3m1b3Qk8XcJt0wq9Vf6gO6z4h8Y1v5pLa root@mint\n');
+  seedFile(sys, '/etc/ssh/ssh_host_ed25519_key.pub', `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN3kQ2yPq0o3m1b3Qk8XcJt0wq9Vf6gO6z4h8Y1v5pLa root@${hostname}\n`);
   seedFile(sys, '/etc/ssh/ssh_host_ed25519_key', '-----BEGIN OPENSSH PRIVATE KEY-----\n(simulated)\n-----END OPENSSH PRIVATE KEY-----\n', { mode: 0o600 });
 
   // --- the student account (the competitor)
-  users.userAdd(sys, { name: 'student', gecos: 'Student,,,', password: 'student', groups: ['adm', 'cdrom', 'sudo', 'dip', 'plugdev', 'lpadmin', 'sambashare'] });
+  users.userAdd(sys, { name: 'student', gecos: 'Student,,,', password: 'student', groups: D.studentGroups });
   seedFile(sys, '/home/student/.config/user-dirs.dirs', 'XDG_DESKTOP_DIR="$HOME/Desktop"\nXDG_DOWNLOAD_DIR="$HOME/Downloads"\nXDG_TEMPLATES_DIR="$HOME/Templates"\nXDG_PUBLICSHARE_DIR="$HOME/Public"\nXDG_DOCUMENTS_DIR="$HOME/Documents"\nXDG_MUSIC_DIR="$HOME/Music"\nXDG_PICTURES_DIR="$HOME/Pictures"\nXDG_VIDEOS_DIR="$HOME/Videos"\n', { uid: 1000, gid: 1000 });
 
   // --- services (everything enabled by default is also running)
@@ -258,7 +305,7 @@ export function buildMint21({ now = () => Date.now(), rng = Math.random, hostnam
   sys.nextPid = 620;
   for (const name of Object.keys(sys.svcState)) { try { sv.startUnit(sys, name); } catch { /* ignore */ } }
   for (const p of sys.processes) if (p.svc) p.start = sys.bootTime + 20000;
-  spawnSession(sys);
+  spawnSession(sys, distro);
   sys.nextPid = 2100;
 
   // --- logs
@@ -269,18 +316,18 @@ export function buildMint21({ now = () => Date.now(), rng = Math.random, hostnam
     `${stamp(b)} ${hostname} kernel: [    0.000000] Linux version ${KERNEL} (buildd@lcy02-amd64-044)`,
     `${stamp(b + 6000)} ${hostname} systemd[1]: Started Journal Service.`,
     `${stamp(b + 21000)} ${hostname} systemd[1]: Started OpenBSD Secure Shell server.`,
-    `${stamp(b + 24000)} ${hostname} systemd[1]: Started Light Display Manager.`,
-    `${stamp(b + 41000)} ${hostname} lightdm: pam_unix(lightdm-greeter:session): session opened for user lightdm(uid=108) by (uid=0)`,
+    `${stamp(b + 24000)} ${hostname} systemd[1]: Started ${D.dmDesc}.`,
+    `${stamp(b + 41000)} ${hostname} ${D.dm}: pam_unix(${D.dm}-greeter:session): session opened for user ${D.dmUser} by (uid=0)`,
   ]);
   log('auth.log', [
-    `${stamp(b + 38000)} ${hostname} lightdm: pam_unix(lightdm:session): session opened for user student(uid=1000) by (uid=0)`,
+    `${stamp(b + 38000)} ${hostname} ${D.dm}: pam_unix(${D.dm}${distro === 'ubuntu' ? '-password' : ''}:session): session opened for user student(uid=1000) by (uid=0)`,
     `${stamp(b + 38100)} ${hostname} systemd-logind[540]: New session c1 of user student.`,
   ]);
   log('kern.log', [`${stamp(b)} ${hostname} kernel: [    0.000000] Command line: BOOT_IMAGE=/boot/vmlinuz-${KERNEL} ro quiet splash`]);
   log('dpkg.log', []);
   seedFile(sys, '/var/log/apt/history.log', '', { mode: 0o644 });
-  seedFile(sys, '/run/utmp', `student  tty7  :0  ${new Date(b + 41000).toISOString().slice(0, 16).replace('T', ' ')}\n`, { mode: 0o664 });
-  seedFile(sys, '/var/log/wtmp', `student  tty7  :0  ${new Date(b + 41000).toISOString().slice(0, 16).replace('T', ' ')}  still logged in\nreboot   system boot  ${KERNEL}  ${new Date(b).toISOString().slice(0, 16).replace('T', ' ')}  still running\n`, { mode: 0o664, gid: 43 });
+  seedFile(sys, '/run/utmp', `student  ${D.tty}  :0  ${new Date(b + 41000).toISOString().slice(0, 16).replace('T', ' ')}\n`, { mode: 0o664 });
+  seedFile(sys, '/var/log/wtmp', `student  ${D.tty}  :0  ${new Date(b + 41000).toISOString().slice(0, 16).replace('T', ' ')}  still logged in\nreboot   system boot  ${KERNEL}  ${new Date(b).toISOString().slice(0, 16).replace('T', ' ')}  still running\n`, { mode: 0o664, gid: 43 });
 
   // --- Firefox profile
   const prof = '/home/student/.mozilla/firefox/k7m2x9qa.default-release';

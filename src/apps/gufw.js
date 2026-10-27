@@ -11,7 +11,7 @@ export async function open(env) {
   if (!ok) return null;
   let tab = 'rules';
   const body = h('div', { style: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } });
-  const head = h('div', { class: 'pad', style: { borderBottom: '1px solid #d0d0d0' } });
+  const head = h('div', { class: 'pad', style: { borderBottom: '1px solid var(--line)' } });
   const tabs = h('div', { class: 'tabs' });
   const win = env.wm.open({ title: 'Firewall Configuration', icon: 'shield', width: 640, height: 480, appId: 'gufw', content: h('div', { class: 'app-body' }, head, tabs, body) });
   const unsub = sys.on('change', (k) => { if (k === 'ufw' || k === 'services') draw(); });
@@ -38,11 +38,11 @@ export async function open(env) {
     const tb = h('tbody');
     rows.forEach((r, i) => tb.append(h('tr', { onclick: () => { sel.i = i; [...tb.children].forEach((c, j) => c.classList.toggle('sel', j === i)); del.disabled = false; } }, h('td', null, String(i + 1)), h('td', null, r.to), h('td', null, r.action), h('td', null, r.from))));
     const del = h('button', { class: 'btn', disabled: true, onclick: () => { if (sel.i >= 0) guard(() => fw.deleteRule(sys, sel.i + 1)); } }, '−');
-    body.append(h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: addDlg }, '+'), del), h('div', { class: 'scroll', style: { flex: 1, background: '#fff' } }, h('table', { class: 'grid' }, h('thead', null, h('tr', null, ['#', 'To', 'Action', 'From'].map((x) => h('th', null, x)))), tb)));
+    body.append(h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: addDlg }, '+'), del), h('div', { class: 'scroll', style: { flex: 1, background: 'var(--surface)' } }, h('table', { class: 'grid' }, h('thead', null, h('tr', null, ['#', 'To', 'Action', 'From'].map((x) => h('th', null, x)))), tb)));
   }
   function drawLog() {
     const txt = sys.vfs.exists('/var/log/ufw.log') ? sys.vfs.readFile('/var/log/ufw.log') : '';
-    body.append(h('pre', { class: 'scroll', style: { flex: 1, margin: 0, padding: '8px', background: '#fff', fontFamily: 'var(--mono)', fontSize: '12px', userSelect: 'text' } }, txt || 'No log entries.'));
+    body.append(h('pre', { class: 'scroll', style: { flex: 1, margin: 0, padding: '8px', background: 'var(--surface)', fontFamily: 'var(--mono)', fontSize: '12px', userSelect: 'text' } }, txt || 'No log entries.'));
   }
   async function addDlg() {
     await env.ui.modal((done) => {

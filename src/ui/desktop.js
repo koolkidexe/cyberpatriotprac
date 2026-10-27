@@ -41,7 +41,7 @@ export class Desktop {
   // ---------------------------------------------------------------- panel
   build() {
     const env = this.env;
-    this.menuBtn = h('div', { id: 'menu-btn', onclick: () => this.toggleMenu() }, h('div', { class: 'logo', html: '<svg viewBox="0 0 24 24"><path d="M5 18V8c0-1 .6-1.700 1.600-1.700.7 0 1.200.4 1.600 1L12 12.500l3.800-5.200c.4-.6.900-1 1.600-1C18.400 6.300 19 7 19 8v10" fill="none" stroke="#fff" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round"/></svg>' }), h('span', null, 'Menu'));
+    this.menuBtn = h('div', { id: 'menu-btn', onclick: () => this.toggleMenu() }, h('div', { class: 'logo', html: '<svg viewBox="0 0 24 24"><path d="M5 18V8c0-1 .6-1.700 1.600-1.700.7 0 1.200.4 1.600 1L12 12.500l3.800-5.200c.4-.6.900-1 1.600-1C18.400 6.300 19 7 19 8v10" fill="none" stroke="#fff" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round"/></svg>' }));
     const lb = (ic, title, fn) => h('div', { class: 'lb', title, onclick: fn }, icon(ic, 24));
     const launchers = h('div', { id: 'launchers' },
       lb('firefox', 'Firefox Web Browser', () => env.openApp('firefox')),
@@ -59,7 +59,8 @@ export class Desktop {
   }
   tickClock() {
     const d = new Date(this.env.sys.now());
-    this.clockEl.innerHTML = `<div>${pad2(d.getHours())}:${pad2(d.getMinutes())}</div><div>${DAYS[d.getDay()]}, ${MONS[d.getMonth()]} ${d.getDate()}</div>`;
+    this.clockEl.textContent = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    this.clockEl.title = `${DAYS[d.getDay()]}, ${MONS[d.getMonth()]} ${d.getDate()}`;
   }
   renderTasks() {
     const wm = this.env.wm;
@@ -95,7 +96,8 @@ export class Desktop {
     this.showPopup(null, [h('h4', null, 'CyberPatriot Simulator'),
       row('Scoring updates', sel), row('Sounds', snd),
       row('Hint', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.hint(); } }, 'Show hint')),
-      row('Score report', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.openApp('chromium', { args: ['file:///opt/CyberPatriot/ScoringReport.html'] }); } }, 'Open')),
+      row('Score report', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.openApp(env.browser || 'chromium', { args: ['file:///opt/CyberPatriot/ScoringReport.html'] }); } }, 'Open')),
+      row('Image', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.switchOs(); } }, 'Switch OS…')),
       row('Start over', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.reset(); } }, 'Reset image…')),
       h('div', { style: { fontSize: '11px', color: '#9aa0a4', marginTop: '6px' } }, 'Practice tool — not the real scoring engine.')], 104);
   }
@@ -137,7 +139,7 @@ export class Desktop {
       h('div', { style: { flex: 1 } }), fav('lock', 'Lock Screen', () => env.lock()), fav('logout', 'Log Out', () => env.logout()), fav('power', 'Quit', () => env.power('poweroff')));
     this.catsEl = h('div', { class: 'cats' });
     this.appsEl = h('div', { class: 'apps' });
-    this.menuEl.append(h('div', { class: 'search' }, this.search), h('div', { class: 'body' }, favs, this.catsEl, this.appsEl));
+    this.menuEl.append(h('div', { class: 'body' }, favs, h('div', { class: 'right' }, h('div', { class: 'search' }, this.search), h('div', { class: 'cols' }, this.catsEl, this.appsEl))));
   }
   renderCats() {
     clear(this.catsEl);
@@ -174,6 +176,7 @@ export class Desktop {
       this.iconsEl.append(el);
     };
     const u = users.getUser(sys, env.user);
+    if (env.os !== 'ubuntu') mk('Computer', 'computer', () => env.openApp('nemo', { path: '/' }));
     mk('Home', 'home', () => env.openApp('nemo', { path: u.home }));
     const dir = this.desktopDir();
     let names = [];

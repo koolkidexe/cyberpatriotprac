@@ -3,7 +3,7 @@ import { h, clear } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import * as users from '../core/users.js';
 import { CmdError } from '../core/errors.js';
-import { lightdmValue } from '../core/checks.js';
+import { autologinUser, usesGdm } from '../core/checks.js';
 import { setIni } from './ini-util.js';
 
 const CONF = '/etc/lightdm/lightdm.conf.d/70-linuxmint.conf';
@@ -18,7 +18,7 @@ export function open(env) {
   const add = h('button', { class: 'btn', disabled: true, onclick: addUser }, '+');
   const rem = h('button', { class: 'btn', disabled: true, onclick: delUser }, '−');
   const body = h('div', { style: { display: 'flex', flex: 1, minHeight: 0 } }, h('div', { style: { display: 'flex', flexDirection: 'column', padding: '8px', gap: '6px' } }, list, h('div', { class: 'hbox' }, add, rem)), form);
-  const win = env.wm.open({ title: 'Users and Groups', icon: 'users', width: 640, height: 470, appId: 'users', content: h('div', { class: 'app-body' }, lock, body) });
+  const win = env.wm.open({ title: env.os === 'ubuntu' ? 'Users' : 'Users and Groups', icon: 'users', width: 640, height: 470, appId: 'users', content: h('div', { class: 'app-body' }, lock, body) });
   const unsub = sys.on('change', (k) => { if (k === 'users' || k === 'fs') draw(); });
   win.onClose(() => unsub());
 
@@ -48,7 +48,7 @@ export function open(env) {
     const sh = users.getShadow(sys, u.name);
     const st = users.passwordState(sh);
     const locked = st === 'L';
-    const autologin = lightdmValue(sys, 'autologin-user') === u.name;
+    const autologin = autologinUser(sys) === u.name;
     const sw = (on, fn, dis) => h('span', { class: 'sw' + (on ? ' on' : '') + (dis ? ' dis' : ''), onclick: fn });
     form.append(h('div', { style: { textAlign: 'center', marginBottom: '12px' } }, icon('users', 64), h('div', { style: { fontSize: '16px', fontWeight: 600 } }, (u.gecos || '').split(',')[0] || u.name)),
       h('div', { class: 'kv' },
@@ -56,7 +56,7 @@ export function open(env) {
         h('div', { class: 'k' }, 'Username'), h('div', null, u.name),
         h('div', { class: 'k' }, 'Password'), h('button', { class: 'btn', disabled: !unlocked && u.name !== env.user, style: { justifySelf: 'start' }, onclick: () => pwDlg(u.name) }, st === 'NP' ? 'No password set' : locked ? '(locked)' : '********'),
         h('div', { class: 'k' }, 'Groups'), h('button', { class: 'btn', disabled: !unlocked, style: { justifySelf: 'start' }, onclick: () => groupsDlg(u.name) }, 'Click to change…'),
-        h('div', { class: 'k' }, 'Automatic login'), sw(autologin, () => { if (!unlocked) return; guard(() => { setIni(sys, CONF, 'Seat:*', 'autologin-user', autologin ? '' : u.name); sys.touch('fs'); drawForm(); }); }, !unlocked),
+        h('div', { class: 'k' }, env.os === 'ubuntu' ? 'Automatic Login' : 'Automatic login'), sw(autologin, () => { if (!unlocked) return; guard(() => { if (usesGdm(sys)) { setIni(sys, '/etc/gdm3/custom.conf', 'daemon', 'AutomaticLoginEnable', autologin ? 'false' : 'true'); setIni(sys, '/etc/gdm3/custom.conf', 'daemon', 'AutomaticLogin', u.name); } else setIni(sys, CONF, 'Seat:*', 'autologin-user', autologin ? '' : u.name); sys.touch('fs'); drawForm(); }); }, !unlocked),
         h('div', { class: 'k' }, 'Last login'), h('div', null, 'Today')));
   }
   async function pwDlg(name) {

@@ -4,8 +4,9 @@ import { icon, fileIconName } from '../ui/icons.js';
 import { FsView, FsError } from '../core/vfs.js';
 import * as users from '../core/users.js';
 import { posix, fmtLsDate, humanSize } from '../core/util.js';
-import { trashPath, uniqueName, modeString } from './files-util.js';
+import { trashPath, uniqueName, modeString, ensureTrash } from './files-util.js';
 
+const PLACES_UBUNTU = [['Recent', 'info', (h0) => h0], ['Starred', 'info', (h0) => h0], ['Home', 'home', (h0) => h0], ['Desktop', 'folder', (h0) => `${h0}/Desktop`], ['Documents', 'folder', (h0) => `${h0}/Documents`], ['Downloads', 'folder', (h0) => `${h0}/Downloads`], ['Music', 'music', (h0) => `${h0}/Music`], ['Pictures', 'image', (h0) => `${h0}/Pictures`], ['Videos', 'video', (h0) => `${h0}/Videos`], ['Trash', 'trash', (h0) => `${h0}/.local/share/Trash/files`], ['Other Locations', 'disk', () => '/']];
 const PLACES = [['Home', 'home', (h0) => h0], ['Desktop', 'folder', (h0) => `${h0}/Desktop`], ['Documents', 'folder', (h0) => `${h0}/Documents`], ['Downloads', 'folder', (h0) => `${h0}/Downloads`], ['Music', 'music', (h0) => `${h0}/Music`], ['Pictures', 'image', (h0) => `${h0}/Pictures`], ['Videos', 'video', (h0) => `${h0}/Videos`], ['Trash', 'trash', (h0) => `${h0}/.local/share/Trash/files`], ['File System', 'disk', () => '/']];
 
 export function open(env, opts = {}) {
@@ -18,23 +19,46 @@ export function open(env, opts = {}) {
   let cwd = opts.path || home;
   const hist = []; let hpos = -1;
   let showHidden = false;
+  let view = 'grid';
   let sel = new Set();
   let items = [];
 
-  const addr = h('input', { class: 'in', style: { flex: 1 }, onkeydown: (e) => { if (e.key === 'Enter') { go(addr.value.replace(/^~/, home)); } } });
+  const ub = env.os === 'ubuntu';
+  const titleOf = (path) => (path === `${home}/.local/share/Trash/files` ? 'Trash' : posix.basename(path) || 'File System');
+  const addr = h('input', { class: 'in', style: { flex: 1 }, onkeydown: (e) => { if (e.key === 'Enter') { go(addr.value.replace(/^~/, home)); endEdit(); } else if (e.key === 'Escape') { addr.value = cwd; endEdit(); } }, onblur: () => endEdit() });
+  // Nautilus-style breadcrumb path bar (Ubuntu); clicking the empty part or Ctrl+L switches to a text location entry
+  const pathbar = ub ? h('div', { class: 'pathbar', onclick: (e) => { if (e.target === pathbar) editAddr(); } }) : null;
+  const editAddr = () => { if (!ub) return; pathbar.style.display = 'none'; addr.style.display = ''; addr.focus(); addr.select(); };
+  const endEdit = () => { if (!ub) return; addr.style.display = 'none'; pathbar.style.display = ''; };
+  const renderPath = () => {
+    if (!ub) return;
+    clear(pathbar);
+    const inHome = cwd === home || cwd.startsWith(home + '/');
+    const segs = [];
+    if (inHome) { segs.push(['Home', home, 'home']); let acc = home; for (const part of cwd.slice(home.length).split('/').filter(Boolean)) { acc += '/' + part; segs.push([part, acc]); } }
+    else { segs.push(['', '/', 'disk']); let acc = ''; for (const part of cwd.split('/').filter(Boolean)) { acc += '/' + part; segs.push([part, acc]); } }
+    segs.forEach(([label, path, ic], i) => {
+      if (i) pathbar.append(h('span', { class: 'sep' }, '›'));
+      pathbar.append(h('div', { class: 'seg' + (i === segs.length - 1 ? ' cur' : ''), onclick: () => go(path) }, ic ? icon(ic, 16) : null, label || null));
+    });
+  };
   const mkBtn = (txt, title, fn) => h('button', { class: 'btn', title, style: { minWidth: '30px', padding: '2px 8px' }, onclick: fn }, txt);
   const back = mkBtn('◀', 'Back', () => { if (hpos > 0) { hpos--; show(hist[hpos], false); } });
   const fwd = mkBtn('▶', 'Forward', () => { if (hpos < hist.length - 1) { hpos++; show(hist[hpos], false); } });
   const up = mkBtn('▲', 'Up', () => go(posix.dirname(cwd) || '/'));
-  const tb = h('div', { class: 'toolbar' }, back, fwd, up, addr, mkBtn('⟳', 'Reload', () => render()));
-  const side = h('div', { class: 'fm-side' }, PLACES.map(([n, ic, f]) => h('div', { class: 'pl', onclick: () => go(f(home)) }, icon(ic, 18), n)));
+  const viewBtn = mkBtn('☰', 'List view', () => { view = view === 'grid' ? 'list' : 'grid'; viewBtn.textContent = view === 'grid' ? '☰' : '▦'; viewBtn.title = view === 'grid' ? 'List view' : 'Icon view'; render(); });
+  const tb = h('div', { class: 'toolbar' }, back, fwd, ...(ub ? [] : [up]), ...(ub ? [pathbar] : []), addr, mkBtn('⟳', 'Reload', () => render()), viewBtn);
+  if (ub) addr.style.display = 'none';
+  const side = h('div', { class: 'fm-side' }, (env.os === 'ubuntu' ? PLACES_UBUNTU : PLACES).map(([n, ic, f]) => h('div', { class: 'pl', onclick: () => { if (n === 'Trash' && !asRoot) { try { ensureTrash(sys, cred, user); } catch { /* ignore */ } } go(f(home)); } }, icon(ic, 18), n)));
   const tbody = h('tbody');
   const table = h('table', { class: 'grid fm-table' }, h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', { style: { width: '90px' } }, 'Size'), h('th', { style: { width: '130px' } }, 'Type'), h('th', { style: { width: '150px' } }, 'Modified'))), tbody);
-  const list = h('div', { class: 'fm-list scroll', tabindex: 0, oncontextmenu: (e) => { if (e.target.closest('tr[data-n]')) return; e.preventDefault(); sel.clear(); renderSel(); ctxMenu(e, null); }, onmousedown: (e) => { if (!e.target.closest('tr[data-n]')) { sel.clear(); renderSel(); list.focus(); } } }, table);
+  const gridEl = h('div', { class: 'fm-grid' });
+  const list = h('div', { class: 'fm-list scroll', tabindex: 0, oncontextmenu: (e) => { if (e.target.closest('[data-n]')) return; e.preventDefault(); sel.clear(); renderSel(); ctxMenu(e, null); }, onmousedown: (e) => { if (!e.target.closest('[data-n]')) { sel.clear(); renderSel(); list.focus(); } } }, table, gridEl);
   const status = h('div', { class: 'statusbar' });
   const content = h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, tb, h('div', { style: { display: 'flex', flex: 1, minHeight: 0 } }, side, list), status);
-  const win = env.wm.open({ title: `${posix.basename(cwd) || 'File System'}${asRoot ? ' (as root)' : ''}`, icon: 'folder', width: 780, height: 500, appId: 'nemo', content });
+  const win = env.wm.open({ title: `${titleOf(cwd)}${asRoot ? ' (as root)' : ''}`, icon: 'folder', width: 780, height: 500, appId: 'nemo', content });
   if (asRoot) addr.style.background = '#f3d7d5';
+  if (ub) { content.addEventListener('keydown', (e) => { if (e.ctrlKey && (e.key === 'l' || e.key === 'L')) { e.preventDefault(); editAddr(); } }); }
 
   const err = (e, what = 'Error') => env.ui.alert({ title: what, heading: what, message: e instanceof FsError ? `${e.text}` : String(e.message || e), icon: 'error' });
   const guard = (fn) => { try { return fn(); } catch (e) { if (e instanceof FsError) { err(e, 'Error'); return undefined; } throw e; } };
@@ -51,7 +75,7 @@ export function open(env, opts = {}) {
     cwd = path;
     if (push) { hist.length = hpos + 1; hist.push(path); hpos = hist.length - 1; }
     sel.clear();
-    win.setTitle(`${posix.basename(path) || 'File System'}${asRoot ? ' (as root)' : ''}`);
+    win.setTitle(`${titleOf(path)}${asRoot ? ' (as root)' : ''}`);
     render();
   }
   function entries() {
@@ -82,11 +106,25 @@ export function open(env, opts = {}) {
   function render() {
     items = entries();
     addr.value = cwd;
+    renderPath();
     clear(tbody);
+    clear(gridEl);
+    table.style.display = view === 'list' ? '' : 'none';
+    gridEl.style.display = view === 'grid' ? '' : 'none';
+    const hand = (it) => ({
+      dataset: { n: it.n },
+      onmousedown: (e) => { if (e.button === 2 && sel.has(it.n)) return; if (e.ctrlKey) { sel.has(it.n) ? sel.delete(it.n) : sel.add(it.n); } else sel = new Set([it.n]); renderSel(); list.focus(); },
+      ondblclick: () => openItem(it),
+      oncontextmenu: (e) => { e.preventDefault(); if (!sel.has(it.n)) { sel = new Set([it.n]); renderSel(); } ctxMenu(e, it); },
+    });
     for (const it of items) {
-      const tr = h('tr', { dataset: { n: it.n }, onmousedown: (e) => { if (e.button === 2 && sel.has(it.n)) return; if (e.ctrlKey) { sel.has(it.n) ? sel.delete(it.n) : sel.add(it.n); } else sel = new Set([it.n]); renderSel(); list.focus(); }, ondblclick: () => openItem(it), oncontextmenu: (e) => { e.preventDefault(); if (!sel.has(it.n)) { sel = new Set([it.n]); renderSel(); } ctxMenu(e, it); } },
+      if (view === 'grid') {
+        gridEl.append(h('div', { class: 'gi', ...hand(it) }, icon(fileIconName(it.n, it.isDir), 56), h('div', { class: 'gn' }, it.n)));
+        continue;
+      }
+      const tr = h('tr', hand(it),
         h('td', null, icon(fileIconName(it.n, it.isDir), 20), ' ', it.n, it.st.t === 'l' ? h('span', { style: { color: '#888' } }, ` → ${it.st.target}`) : null),
-        h('td', null, it.isDir ? `${fs.readdirSafe ? '' : ''}${childCount(it.p)} items` : humanSize(it.st.size)), h('td', null, typeOf(it)), h('td', null, fmtLsDate(it.st.mtime, sys.now()).replace(/\s+/g, ' ')));
+        h('td', null, it.isDir ? `${childCount(it.p)} items` : humanSize(it.st.size)), h('td', null, typeOf(it)), h('td', null, fmtLsDate(it.st.mtime, sys.now()).replace(/\s+/g, ' ')));
       tbody.append(tr);
     }
     renderSel();
@@ -95,6 +133,7 @@ export function open(env, opts = {}) {
   function childCount(p) { try { return fs.readdir(p).filter((n) => showHidden || !n.startsWith('.')).length; } catch { return '?'; } }
   function renderSel() {
     for (const tr of tbody.children) tr.classList.toggle('sel', sel.has(tr.dataset.n));
+    for (const g of gridEl.children) g.classList.toggle('sel', sel.has(g.dataset.n));
     status.textContent = sel.size ? `${sel.size} item${sel.size === 1 ? '' : 's'} selected` : `${items.length} items`;
   }
   function openItem(it) {
@@ -172,7 +211,7 @@ export function open(env, opts = {}) {
     const iAmOwner = asRoot || st.uid === cred.uid;
     const canChown = asRoot;
     const body = h('div', { style: { flex: 1, overflow: 'auto' } });
-    const row = (a, b) => h('div', { style: { display: 'flex', padding: '3px 0' } }, h('div', { style: { width: '130px', textAlign: 'right', paddingRight: '14px', color: '#666' } }, a), h('div', { style: { flex: 1, userSelect: 'text' } }, b));
+    const row = (a, b) => h('div', { style: { display: 'flex', padding: '3px 0' } }, h('div', { style: { width: '130px', textAlign: 'right', paddingRight: '14px', color: 'var(--text-dim)' } }, a), h('div', { style: { flex: 1, userSelect: 'text' } }, b));
     const tabs = h('div', { class: 'tabs' });
     const pw = env.wm.open({ title: `${it.n} Properties`, icon: 'folder', width: 420, height: 440, appId: 'props', content: h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1 } }, tabs, body), noMax: true, resizable: false });
     const basic = () => {
@@ -198,7 +237,7 @@ export function open(env, opts = {}) {
         const x = h('input', { type: 'checkbox', disabled: !en, checked: !!(st.mode & 0o111), onchange: () => apply(x.checked ? st.mode | 0o111 : st.mode & ~0o111) });
         body.append(h('div', { style: { fontWeight: 600, margin: '10px 0 4px' } }, 'Execute'), row('', h('label', null, x, ' Allow executing file as program')));
       }
-      body.append(h('div', { style: { marginTop: '10px', color: '#666', fontFamily: 'var(--mono)' } }, `${modeString(st.mode & 0o7777, st.t)}  (${(st.mode & 0o7777).toString(8).padStart(4, '0')})`));
+      body.append(h('div', { style: { marginTop: '10px', color: 'var(--text-dim)', fontFamily: 'var(--mono)' } }, `${modeString(st.mode & 0o7777, st.t)}  (${(st.mode & 0o7777).toString(8).padStart(4, '0')})`));
       if (it.isDir && en) body.append(h('div', { style: { marginTop: '10px' } }, h('button', { class: 'btn', onclick: () => { guard(() => { const walk = (p) => { for (const n of fs.readdir(p)) { const q = posix.join(p, n); const s2 = fs.lstat(q); fs.chmod(q, s2.t === 'd' ? st.mode & 0o7777 : (st.mode & 0o7777) & ~0o111 | (s2.mode & 0o111 && s2.t !== 'd' ? 0 : 0)); if (s2.t === 'd') walk(q); } }; walk(it.p); }); } }, 'Apply Permissions to Enclosed Files')));
     };
     const apply = (mode) => {

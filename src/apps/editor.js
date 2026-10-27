@@ -19,7 +19,7 @@ export function open(env, opts = {}) {
     catch (e) {
       if (e instanceof FsError && e.code === 'ENOENT') text = '';
       else if (e instanceof FsError) {
-        env.ui.alert({ title: 'xed', heading: `Could not open the file ${path}`, message: e.code === 'EACCES' ? 'You do not have the permissions necessary to open the file.' : e.text, icon: 'error' });
+        env.ui.alert({ title: env.os === 'ubuntu' ? 'gedit' : 'xed', heading: `Could not open the file ${path}`, message: e.code === 'EACCES' ? 'You do not have the permissions necessary to open the file.' : e.text, icon: 'error' });
         return null;
       } else throw e;
     }
@@ -46,7 +46,7 @@ export function open(env, opts = {}) {
   const tb = h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: openDlg }, 'Open'), h('button', { class: 'btn', onclick: save }, 'Save'));
   const status = h('div', { class: 'statusbar', style: { display: 'flex', justifyContent: 'space-between' } }, pos, h('span', null, 'Plain Text   Tab Width: 8   INS'));
   const content = h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, menu, tb, ta, status);
-  const titleOf = () => `${dirty ? '*' : ''}${path ? posix.basename(path) : 'Unsaved Document 1'}${path ? ` (${posix.dirname(path)})` : ''} - xed${user === 'root' ? ' (as root)' : ''}`;
+  const titleOf = () => `${dirty ? '*' : ''}${path ? posix.basename(path) : 'Unsaved Document 1'}${path ? ` (${posix.dirname(path)})` : ''} - ${env.os === 'ubuntu' ? 'gedit' : 'xed'}${user === 'root' ? ' (as root)' : ''}`;
   const win = env.wm.open({ title: titleOf(), icon: 'text', width: 700, height: 480, appId: 'xed', content });
   const retitle = () => win.setTitle(titleOf());
   win.onClose(() => {});
@@ -75,7 +75,7 @@ export function open(env, opts = {}) {
       dirty = false; retitle();
     } catch (e) {
       if (!(e instanceof FsError)) throw e;
-      env.ui.alert({ title: 'xed', heading: `Could not save the file “${path}”.`, message: e.code === 'EACCES' || e.code === 'EPERM' || e.code === 'EROFS' ? 'You do not have the permissions necessary to save the file. Please check that you typed the location correctly and try again.' : `${e.text}. Please check that you typed the location correctly and try again.`, icon: 'error' });
+      env.ui.alert({ title: env.os === 'ubuntu' ? 'gedit' : 'xed', heading: `Could not save the file “${path}”.`, message: e.code === 'EACCES' || e.code === 'EPERM' || e.code === 'EROFS' ? 'You do not have the permissions necessary to save the file. Please check that you typed the location correctly and try again.' : `${e.text}. Please check that you typed the location correctly and try again.`, icon: 'error' });
     }
   }
   setTimeout(() => ta.focus(), 30);

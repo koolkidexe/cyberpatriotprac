@@ -11,6 +11,7 @@ const LOADERS = {
   update: () => import('./update.js'),
   software: () => import('./software.js'),
   sources: () => import('./generic.js'),
+  swprops: () => import('./swprops.js'),
   monitor: () => import('./monitor.js'),
   login: () => import('./login-window.js'),
   startup: () => import('./startup.js'),

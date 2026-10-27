@@ -108,7 +108,27 @@ export function lightdmValue(sys, key) {
   }
   return val;
 }
-export const guestAllowed = (sys) => (lightdmValue(sys, 'allow-guest') ?? 'true').toLowerCase() === 'true';
+export const guestAllowed = (sys) => pk.isInstalled(sys, 'lightdm') && (lightdmValue(sys, 'allow-guest') ?? 'true').toLowerCase() === 'true';
+
+/** Value of a key in the [daemon] section of GDM's custom.conf (Ubuntu). */
+export function gdmValue(sys, key) {
+  let val; let section = '';
+  for (const raw of (rd(sys, '/etc/gdm3/custom.conf') || '').split('\n')) {
+    const l = raw.trim();
+    const sm = /^\[(.+)\]$/.exec(l);
+    if (sm) { section = sm[1]; continue; }
+    if (section !== 'daemon') continue;
+    const m = new RegExp(`^${key}\\s*=\\s*(.*)$`).exec(l);
+    if (m) val = m[1].trim();
+  }
+  return val;
+}
+export const usesGdm = (sys) => pk.isInstalled(sys, 'gdm3');
+/** The account that logs in automatically at boot (null = none), for whichever display manager is installed. */
+export function autologinUser(sys) {
+  if (usesGdm(sys)) return (gdmValue(sys, 'AutomaticLoginEnable') || '').toLowerCase() === 'true' ? gdmValue(sys, 'AutomaticLogin') || null : null;
+  return lightdmValue(sys, 'autologin-user') || null;
+}
 
 export function aptPeriodic(sys, key) {
   let v = null;

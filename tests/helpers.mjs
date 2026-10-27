@@ -1,9 +1,11 @@
 // Shared helpers for headless tests: build the Mint scenario machine and drive a Shell with scripted input.
 import { createShell } from '../src/shell/index.js';
-import scenario from '../src/scenarios/mint-round1/index.js';
+import mint from '../src/scenarios/mint-round1/index.js';
+import ubuntu from '../src/scenarios/ubuntu-round1/index.js';
 import { ScoringEngine } from '../src/core/scoring.js';
 
-export function makeEnv({ user = 'student', seed = 1 } = {}) {
+export function makeEnv({ user = 'student', seed = 1, os = 'mint' } = {}) {
+  const scenario = os === 'ubuntu' ? ubuntu : mint;
   let t = Date.UTC(2026, 9, 24, 20, 48, 0); // fixed clock: Sat 2026-10-24 16:48 EDT
   let s = seed;
   const rng = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };

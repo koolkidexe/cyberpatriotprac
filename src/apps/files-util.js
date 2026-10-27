@@ -10,6 +10,14 @@ export function uniqueName(fs, dir, name) {
   return name + '.' + Date.now();
 }
 
+/** Make sure ~/.local/share/Trash/{files,info} exist (the trash is created lazily, as on a real system). */
+export function ensureTrash(sys, cred, user) {
+  const home = users.getUser(sys, user).home;
+  const tdir = `${home}/.local/share/Trash`;
+  for (const d of [`${home}/.local`, `${home}/.local/share`, tdir, `${tdir}/files`, `${tdir}/info`]) { if (!sys.vfs.exists(d)) sys.vfs.mkdir(d, { mode: 0o700, uid: cred.uid, gid: cred.gid }); }
+  return `${tdir}/files`;
+}
+
 /** Move a path to the user's trash like nemo/gio does. */
 export function trashPath(sys, cred, user, path) {
   const fs = new FsView(sys.vfs, cred);

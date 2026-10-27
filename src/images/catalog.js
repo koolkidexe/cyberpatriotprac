@@ -241,6 +241,53 @@ svc('auditd', { desc: 'Security Auditing Service', package: 'auditd', exec: '/sb
 svc('nfs-server', { desc: 'NFS server and services', package: 'nfs-kernel-server', type: 'oneshot', exec: '/usr/sbin/exportfs -r', listen: [{ proto: 'tcp', addr: '0.0.0.0', port: 2049 }] });
 svc('telnetd', { desc: 'Telnet server', package: 'inetutils-telnetd', exec: '/usr/sbin/telnetd', listen: [{ proto: 'tcp', addr: '0.0.0.0', port: 23 }] });
 
+
+// ------------------------------------------------------------------ distro variants (Mint 21 / Ubuntu 22.04)
+// Packages and units tagged `only` exist on one distro; `over[distro]` overrides fields (versions...).
+svc('gdm3', { desc: 'GNOME Display Manager', package: 'gdm3', exec: '/usr/sbin/gdm3' });
+const UBU = (name, v, d, o = {}) => pkg(name, v, d, { installed: true, only: 'ubuntu', ...o });
+UBU('gdm3', '42.0-1ubuntu7.22.04.3', 'GNOME Display Manager', { bins: ['/usr/sbin/gdm3'], svc: ['gdm3'], conf: { '/etc/gdm3/custom.conf': C.GDM_CUSTOM } });
+UBU('gnome-shell', '42.9-0ubuntu2.2', 'graphical shell for the GNOME desktop', { bins: ['/usr/bin/gnome-shell'] });
+UBU('ubuntu-desktop', '1.539.2', 'The Ubuntu desktop system');
+UBU('ubuntu-session', '42.0-1ubuntu2.5', 'Ubuntu session');
+UBU('yaru-theme-gtk', '22.04.4', 'Yaru GTK theme from the Ubuntu Community');
+UBU('nautilus', '1:42.6-0ubuntu1', 'file manager and graphical shell for GNOME', { bins: ['/usr/bin/nautilus'], gui: { title: 'Files', summary: 'Access and organize files', cat: 'Accessories' } });
+UBU('gnome-control-center', '1:41.7-0ubuntu0.22.04.9', 'utilities to configure the GNOME desktop', { bins: ['/usr/bin/gnome-control-center'], gui: { title: 'Settings', summary: 'Change system settings', cat: 'System Tools' } });
+UBU('gedit', '41.0-3', 'official text editor of the GNOME desktop environment', { bins: ['/usr/bin/gedit'], gui: { title: 'Text Editor', summary: 'Edit text files', cat: 'Accessories' } });
+UBU('update-manager', '1:22.04.19', 'GNOME application that manages apt updates', { bins: ['/usr/bin/update-manager'], gui: { title: 'Software Updater', summary: 'Update software on this computer', cat: 'System Tools' } });
+UBU('software-properties-gtk', '0.99.22.9', 'manage the repositories that you install software from (gtk)', { bins: ['/usr/bin/software-properties-gtk'], gui: { title: 'Software & Updates', summary: 'Configure software sources and updates', cat: 'System Tools' } });
+UBU('gnome-software', '42.5-0ubuntu1', 'Software Center for GNOME', { bins: ['/usr/bin/gnome-software'], gui: { title: 'Ubuntu Software', summary: 'Add, remove or update software on this computer', cat: 'System Tools' } });
+UBU('eog', '42.4-1', 'Eye of GNOME graphics viewer program', { bins: ['/usr/bin/eog'], gui: { title: 'Image Viewer', summary: 'Browse and rotate images', cat: 'Graphics' } });
+UBU('evince', '42.3-0ubuntu3', 'Document (PostScript, PDF) viewer', { bins: ['/usr/bin/evince'], gui: { title: 'Document Viewer', summary: 'View multi-page documents', cat: 'Office' } });
+UBU('totem', '43.0-1ubuntu1', 'Simple media player for the GNOME desktop', { bins: ['/usr/bin/totem'], gui: { title: 'Videos', summary: 'Play movies', cat: 'Sound and video' } });
+UBU('gnome-screenshot', '41.0-3', 'screenshot application for GNOME', { gui: { title: 'Screenshot', summary: 'Save images of your screen', cat: 'Accessories' } });
+UBU('gnome-disk-utility', '42.0-1ubuntu1', 'manage and configure disk drives and media', { gui: { title: 'Disks', summary: 'Manage drives and media', cat: 'System Tools' } });
+UBU('gnome-startup-applications', '42.0-1ubuntu1', 'Startup Applications', { gui: { title: 'Startup Applications', summary: 'Choose what applications to start when you log in', cat: 'System Tools', exec: 'gnome-session-properties' }, bins: ['/usr/bin/gnome-session-properties'] });
+UBU('snapd', '2.63+22.04ubuntu0.1', 'Daemon and tooling that enable snap packages', { bins: ['/usr/bin/snap'] });
+UBU('ubuntu-advantage-tools', '31.2.3~22.04', 'management tools for Ubuntu Pro');
+UBU('popularity-contest', '1.72ubuntu1', 'Vote for your favourite packages automatically');
+
+const MINT_ONLY = ['lightdm', 'slick-greeter', 'nemo', 'cinnamon', 'mintupdate', 'mintinstall', 'mintsources', 'xed', 'chromium', 'hypnotix', 'warpinator', 'drawing', 'pix', 'xreader', 'timeshift', 'mintreport', 'mintwelcome', 'mintbackup', 'mintstick', 'bulky', 'sticky', 'onboard', 'celluloid', 'mint-meta-core', 'mint-themes', 'mint-y-icons', 'mint-artwork'];
+for (const n of MINT_ONLY) if (PACKAGES[n]) PACKAGES[n].only = 'mint';
+SERVICES.lightdm.only = 'mint';
+// Firefox on the Ubuntu image is the Mozilla .deb build (not the snap), so it can be updated with apt.
+PACKAGES.firefox.over = { ubuntu: { v: '131.0+build1-0ubuntu0.22.04.1', avail: '132.0.2+build1-0ubuntu0.22.04.1', d: 'Safe and easy web browser from Mozilla' } };
+PACKAGES.firefox.gui.over = undefined;
+
+const ALL_PACKAGES = { ...PACKAGES };
+const ALL_SERVICES = { ...SERVICES };
+export let DISTRO = 'mint';
+/** Select which distro's package set / units are visible (clears and refills the exported maps in place). */
+export function applyDistro(distro) {
+  DISTRO = distro;
+  for (const k of Object.keys(PACKAGES)) delete PACKAGES[k];
+  for (const k of Object.keys(SERVICES)) delete SERVICES[k];
+  for (const [k, d] of Object.entries(ALL_PACKAGES)) if (!d.only || d.only === distro) PACKAGES[k] = { ...d, ...(d.over?.[distro] || {}) };
+  for (const [k, d] of Object.entries(ALL_SERVICES)) if (!d.only || d.only === distro) SERVICES[k] = { ...d };
+  if (distro === 'ubuntu' && SERVICES['avahi-daemon']) SERVICES['avahi-daemon'].exec = SERVICES['avahi-daemon'].exec.replace('mint.local', 'ubuntu.local');
+}
+applyDistro('mint');
+
 export const packageList = () => Object.values(PACKAGES);
 export const serviceList = () => Object.values(SERVICES);
 export const servicesOfPackage = (p) => (PACKAGES[p]?.svc || []).map((n) => SERVICES[n]).filter(Boolean);

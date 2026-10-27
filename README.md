@@ -1,8 +1,8 @@
-# CyberPatriot Simulator (Linux Mint 21)
+# CyberPatriot Simulator (Linux Mint 21 + Ubuntu 22.04)
 
 A **static website** that simulates a CyberPatriot Linux practice image: a fake Linux Mint 21 "Cinnamon" desktop in your browser, with a deliberately misconfigured virtual computer you have to secure, a simulated terminal, GUI admin apps, a scenario README, forensics questions, and a live Scoring Report with "You gained / lost points" popups. No VM, no backend, no build step.
 
-> Status: **work in progress.** The simulation engine, the shell and the scoring are finished and tested. The desktop UI is the part still being built. See "What's done / what's left" below.
+> Status: **work in progress.** The simulation engine, the shell and the scoring are finished and tested. The desktop UIs for Mint and Ubuntu are built; polish items are listed in "What's done / what's left" below.
 
 ## Running it
 
@@ -30,6 +30,16 @@ tests/         node:test suites incl. a full scripted solve that must reach exac
 ### The bundled scenario: "Mint Practice Round 1"
 100 points, penalties of −5. 3 forensics questions, user auditing (unauthorized users, hidden UID 0 account, wrongly-privileged users, weak passwords), account policy (guest login, password age/length, lockout, empty passwords, sudo without password), updates, firewall, SSH hardening (note the `sshd_config.d` trap), sysctl, prohibited software/files, a respawning backdoor (cron + listener), a malicious autostart entry and `/etc/shadow` permissions. A full scripted solve in `tests/solve.test.mjs` proves all 100 points are reachable and that nothing scores by accident.
 
+## Images
+
+| Image | Desktop | Scenario | Pick it with |
+|---|---|---|---|
+| Linux Mint 21.3 | Cinnamon (bottom panel) | Mint Practice Round 1, 100 pts | start page, or `?os=mint` |
+| Ubuntu 22.04 | GNOME/Yaru (top bar + dock) | Ubuntu Practice Round 1, 100 pts | start page, or `?os=ubuntu` |
+
+The choice is remembered; switch with the chart icon → "Switch OS…". Saves are per image. Ubuntu logins: `student` / `Student#Ubuntu22` (Mint: `Student#Mint21`).
+Both images share the same engine, shell, apps and scoring; the distro differences live in `src/images/catalog.js` (`only` / `over` tags, `applyDistro`), `src/images/mint21.js` (`DISTROS` table, `buildUbuntu22`), the scenario folders and `src/ui/gnome-shell.js` + `css/ubuntu.css`.
+
 ## What's done
 
 - Virtual filesystem with real permission semantics (`FsView` per user), symlinks, usr-merge layout, `/proc` and `/dev` virtual nodes
@@ -41,15 +51,18 @@ tests/         node:test suites incl. a full scripted solve that must reach exac
 - Scoring engine (instant or realistic 60 s mode), report object, penalties, persistence round trip
 - Desktop UI (`index.html`, `css/`, `src/main.js`, `src/ui/*`): Cinnamon-style panel, start menu from `.desktop` files, window manager, desktop icons, polkit-style auth dialog, "You gained / lost points" toasts + sounds, welcome dialog, lock screen/greeter, tray menu (scoring mode, sound, hint, report, reset), autosave to localStorage, reboot semantics
 - GUI apps (`src/apps/*`): Terminal (history, Tab completion, nano/vi overlays), Files/Nemo (Open as Root, trash, Properties → Permissions), Text Editor (xed), Chromium/Firefox viewer (tabs, README, live CCS-style Scoring Report at `/opt/CyberPatriot/ScoringReport.html`), Users and Groups, Firewall (gufw), Update Manager (+ auto-refresh preference), Software Manager, Startup Applications, Login Window (guest sessions), System Monitor, System Settings. All of them read/write the same virtual system as the terminal, so a fix made either way scores identically
-- Tests: 17 passing (VFS, full terminal solve to 100/100, penalties, respawn, snapshot/restore, boot). GUI paths were also verified in headless Chromium (Playwright): GUI fixes score, toasts fire, state survives a reload
+- Looks follow real reference screenshots. Mint: dark wallpaper, logo-only menu button, time-only clock, two-column start menu. Ubuntu (Yaru): top bar with the active app name, dock with Trash, Settings → Appearance (Light/Dark, 10 accent colours, dock Left/Bottom/Right; default Dark + Red + Bottom like the reference), Nautilus-style Files (icon view, breadcrumb path bar, Ctrl+L)
+- Icons: the real CyberPatriot logo (`assets/cyberpatriot-logo.png`) is used for the README, Scoring Report and Forensics Question files
+- Ubuntu 22.04 image: gdm3/GNOME packages, Software Updater, Software & Updates, Ubuntu Software, gedit, GNOME-style Settings, automatic-login handling via `/etc/gdm3/custom.conf`
+- Tests: 20 passing (VFS, full terminal solve to 100/100, penalties, respawn, snapshot/restore, boot). GUI paths were also verified in headless Chromium (Playwright): GUI fixes score, toasts fire, state survives a reload
 
 ## What's left (in priority order)
 
-1. More polish on GUI apps: Nemo drag-and-drop and list/icon view toggle, Software Sources / Print Settings (currently a stub window), Firefox about:preferences, richer vi, System Monitor graphs.
+1. More polish on GUI apps: Nemo drag-and-drop, Software Sources / Print Settings (currently a stub window), Firefox about:preferences, richer vi, System Monitor graphs.
 2. Add Playwright end-to-end tests to `tests/` (currently ad hoc scripts) and unit tests for more shell commands (`ps`, `ufw`, `apt` output formats).
-3. Fidelity: `ps`/`ss`/`netstat` column layouts are approximations; some catalog versions are Jammy/Ubuntu-mixed; more man pages; `tar`/`zip`.
+3. More task types from previous years (the user's list never arrived; photo hints: create a missing user, force password change at next login, security updates, remove Apache2/Aisleriot/Ophcrack). Fidelity: `ps`/`ss`/`netstat` column layouts are approximations; some catalog versions are Jammy/Ubuntu-mixed; more man pages; `tar`/`zip`.
 4. More scenarios (Mint round 2, harder variants; scoring "realistic" mode tuning).
-5. Ubuntu and Windows images (see `docs/adding-an-os.md`).
+5. Windows image (needs a new shell and registry/ACL model; see `docs/adding-an-os.md`). Ubuntu polish: GNOME lock screen, more Ubuntu-only tasks (snap, unattended-upgrades, AppArmor).
 
 Known quirk: browsers may capture Ctrl+W / Ctrl+T in nano; use the clickable footer or F2/F3/F6.
 

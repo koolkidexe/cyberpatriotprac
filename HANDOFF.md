@@ -7,7 +7,7 @@ A **static website** (no VM, no backend) that looks and behaves like a CyberPatr
 a fake Mint/Cinnamon desktop in the browser, a misconfigured "system" the user secures, a live
 **Scoring Report**, a **Scenario README**, forensics questions, score popups ("You gained points!").
 "As accurate as artificially possible." Start with **Mint 21** (user corrected from 22 → 21), later
-Ubuntu and Windows. Deployed free on GitHub Pages. Unofficial: no CyberPatriot logos/assets.
+Ubuntu and Windows. Deployed free on GitHub Pages. Unofficial fan project; the user supplied the CyberPatriot logo (`assets/cyberpatriot-logo.png`) for the file icons.
 I cannot create the GitHub repo from the sandbox; user publishes with `git init` / `gh repo create`.
 
 ## Key decisions
@@ -136,3 +136,10 @@ Playwright/Chromium: open README, use terminal + GUI, watch score change, screen
 
 ## Status (latest)
 Engine, shell, Mint 21 image, scenario, desktop UI and all GUI apps are built and tested (see README "What's done"/"What's left"). Run `npm test` and `node scripts/serve.mjs` (http://localhost:8080).
+
+
+## Latest status (Oct 26)
+- Mint and Ubuntu look-alike desktops are both done and verified in headless Chromium; 20 tests pass.
+- Ubuntu theme: `env.theme()` / `env.setTheme({style, accent, dock})` (stored in `env.settings.ubuntuTheme`, applied by `UbuntuDesktop.applyTheme`, CSS in `css/ubuntu.css`: `body.ub-dark`, `body.dock-left|bottom|right`). Window widgets use `--surface`, `--surface-2`, `--line`, `--text-dim` variables so dark mode works; do not hard-code light colours in app JS.
+- Folder/home icons use `--folder` (accent on Ubuntu).
+- Not done: tasks list from previous years (user has not re-sent it), Windows image, GNOME lock screen, Playwright e2e tests in `tests/`.

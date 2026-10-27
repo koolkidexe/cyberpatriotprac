@@ -7,7 +7,7 @@ export function open(env) {
   const sys = env.sys;
   const out = h('div', { class: 'scroll', style: { flex: 1, padding: '10px' } });
   const q = h('input', { class: 'in', placeholder: 'Search…', style: { flex: 1 }, oninput: () => draw(q.value) });
-  const win = env.wm.open({ title: 'Software Manager', icon: 'bag', width: 720, height: 500, appId: 'software', content: h('div', { class: 'app-body' }, h('div', { class: 'toolbar' }, q, h('button', { class: 'btn', onclick: () => { q.value = ''; draw(''); } }, 'Installed')), out) });
+  const win = env.wm.open({ title: env.os === 'ubuntu' ? 'Ubuntu Software' : 'Software Manager', icon: 'bag', width: 720, height: 500, appId: 'software', content: h('div', { class: 'app-body' }, h('div', { class: 'toolbar' }, q, h('button', { class: 'btn', onclick: () => { q.value = ''; draw(''); } }, 'Installed')), out) });
   const unsub = sys.on('change', (k) => { if (k === 'packages') draw(q.value); });
   win.onClose(() => unsub());
   function draw(term) {
@@ -17,7 +17,7 @@ export function open(env) {
     if (!term.trim()) out.append(h('div', { style: { color: '#777', marginBottom: '8px' } }, 'Installed software (type to search all packages)'));
     for (const d of res.slice(0, 120)) {
       const inst = pk.isInstalled(sys, d.name);
-      out.append(h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 8px', borderBottom: '1px solid #e4e4e4' } }, icon('app', 30), h('div', { style: { flex: 1 } }, h('div', { style: { fontWeight: 600 } }, d.name, ' ', h('span', { class: 'badge' + (inst ? ' green' : '') }, inst ? 'installed' : d.v)), h('div', { style: { color: '#666', fontSize: '12px' } }, d.d)),
+      out.append(h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 8px', borderBottom: '1px solid var(--line)' } }, icon('app', 30), h('div', { style: { flex: 1 } }, h('div', { style: { fontWeight: 600 } }, d.name, ' ', h('span', { class: 'badge' + (inst ? ' green' : '') }, inst ? 'installed' : d.v)), h('div', { style: { color: '#666', fontSize: '12px' } }, d.d)),
         h('button', { class: 'btn' + (inst ? '' : ' primary'), onclick: () => act(d, inst) }, inst ? 'Remove' : 'Install')));
     }
     if (!res.length) out.append(h('div', { style: { color: '#777' } }, 'No packages found.'));
@@ -27,7 +27,7 @@ export function open(env) {
     if (!ok) return;
     if (inst) {
       const plan = pk.planRemove(sys, [d.name]);
-      if (plan.essential.length) { env.ui.alert({ title: 'Software Manager', heading: 'Cannot remove', message: `${plan.essential.join(', ')} is essential and cannot be removed.`, icon: 'error' }); return; }
+      if (plan.essential.length) { env.ui.alert({ title: env.os === 'ubuntu' ? 'Ubuntu Software' : 'Software Manager', heading: 'Cannot remove', message: `${plan.essential.join(', ')} is essential and cannot be removed.`, icon: 'error' }); return; }
       const all = plan.remove;
       if (all.length > 1) { const go = await env.ui.confirm({ title: 'Remove', heading: 'The following packages will be removed', message: all.join(', '), ok: 'Remove', danger: true }); if (!go) return; }
       for (const n of all) pk.removePackage(sys, n);

@@ -22,12 +22,12 @@ export async function open(env) {
     const manual = (lightdmValue(sys, 'greeter-show-manual-login') ?? 'false').toLowerCase() === 'true';
     const hideUsers = (lightdmValue(sys, 'greeter-hide-users') ?? 'false').toLowerCase() === 'true';
     const auto = lightdmValue(sys, 'autologin-user');
-    const row = (label, desc, on, fn) => h('div', { style: { display: 'flex', alignItems: 'center', padding: '10px 4px', borderBottom: '1px solid #e0e0e0', gap: '12px' } }, h('div', { style: { flex: 1 } }, h('div', { style: { fontWeight: 600 } }, label), h('div', { style: { fontSize: '12px', color: '#666' } }, desc)), h('span', { class: 'sw' + (on ? ' on' : ''), onclick: fn }));
+    const row = (label, desc, on, fn) => h('div', { style: { display: 'flex', alignItems: 'center', padding: '10px 4px', borderBottom: '1px solid var(--line)', gap: '12px' } }, h('div', { style: { flex: 1 } }, h('div', { style: { fontWeight: 600 } }, label), h('div', { style: { fontSize: '12px', color: 'var(--text-dim)' } }, desc)), h('span', { class: 'sw' + (on ? ' on' : ''), onclick: fn }));
     body.append(h('h3', { style: { margin: '0 0 6px' } }, 'Users'),
       row('Allow guest sessions', 'Allow users to log in without a password as a temporary guest', guest, () => set('Seat:*', 'allow-guest', guest ? 'false' : 'true')),
       row('Allow manual login', 'Show a field to type any username at the greeter', manual, () => set('Seat:*', 'greeter-show-manual-login', manual ? 'false' : 'true')),
       row('Hide the user list', 'Do not show user names at the greeter', hideUsers, () => set('Seat:*', 'greeter-hide-users', hideUsers ? 'false' : 'true')),
-      h('div', { style: { padding: '10px 4px', color: '#666' } }, `Automatic login: ${auto ? auto : 'disabled'}`));
+      h('div', { style: { padding: '10px 4px', color: 'var(--text-dim)' } }, `Automatic login: ${auto ? auto : 'disabled'}`));
   }
   draw();
   return win;

@@ -12,18 +12,50 @@ import { mountVirtual } from './images/mint21.js';
 import { FsView } from './core/vfs.js';
 import * as users from './core/users.js';
 import * as K from './core/checks.js';
-import scenario from './scenarios/mint-round1/index.js';
+import mintScenario from './scenarios/mint-round1/index.js';
+import ubuntuScenario from './scenarios/ubuntu-round1/index.js';
+import { UbuntuDesktop } from './ui/gnome-shell.js';
 import { loadApp } from './apps/registry.js';
 import { runExec } from './apps/launch.js';
 import { parseDesktop } from './ui/dom.js';
 
-const SAVE_KEY = `cpsim.save.v1.${scenario.id}`;
-const SET_KEY = 'cpsim.settings.v1';
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } },
 };
+
+
+const SCENARIOS = { mint: mintScenario, ubuntu: ubuntuScenario };
+const OS_KEY = 'cpsim.os';
+
+function chooseOs() {
+  const qs = new URLSearchParams(location.search);
+  const want = qs.get('os') || store.get(OS_KEY);
+  if (SCENARIOS[want]) { store.set(OS_KEY, want); return Promise.resolve(want); }
+  return new Promise((resolve) => {
+    const boot = document.getElementById('boot');
+    const card = (id, name, sub, color, logo) => h('div', { onclick: () => { store.set(OS_KEY, id); chooser.remove(); resolve(id); }, style: { cursor: 'pointer', width: '230px', padding: '22px 18px', borderRadius: '10px', background: '#1d2125', border: `2px solid ${color}`, textAlign: 'center', color: '#eee' } },
+      h('div', { style: { fontSize: '44px', marginBottom: '8px' }, html: logo }), h('div', { style: { fontSize: '18px', fontWeight: 700 } }, name), h('div', { style: { fontSize: '12px', color: '#9aa0a4', marginTop: '6px' } }, sub));
+    const chooser = h('div', { style: { position: 'absolute', inset: 0, zIndex: 10001, background: '#111', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '26px', fontFamily: 'sans-serif' } },
+      h('div', { style: { color: '#fff', fontSize: '26px', fontWeight: 300 } }, 'CyberPatriot Simulator'), h('div', { style: { color: '#9aa0a4' } }, 'Choose an image to practice on'),
+      h('div', { style: { display: 'flex', gap: '24px' } },
+        card('mint', 'Linux Mint 21', 'Cinnamon desktop · 100-point round', '#8fa876', '🌿'),
+        card('ubuntu', 'Ubuntu 22.04', 'GNOME desktop · 100-point round', '#e95420', '🟠')),
+      h('div', { style: { color: '#6c7378', fontSize: '12px' } }, 'You can switch later from the simulator menu. Progress is saved separately for each image.'));
+    document.getElementById('screen').append(chooser);
+    boot?.classList.add('hide');
+  });
+}
+const OS = await chooseOs();
+const scenario = SCENARIOS[OS];
+document.body.classList.add(`os-${OS}`);
+document.title = `CyberPatriot Simulator — ${scenario.imageName}`;
+const bootLabel = document.querySelector('#boot > div'); if (bootLabel) bootLabel.textContent = scenario.imageName;
+const SAVE_KEY = `cpsim.save.v1.${scenario.id}`;
+const SET_KEY = 'cpsim.settings.v1';
+const BROWSER = OS === 'ubuntu' ? 'firefox' : 'chromium';
+const LOCK_BG = OS === 'ubuntu' ? 'radial-gradient(900px 600px at 50% 30%, #77216f, #2c001e)' : 'radial-gradient(900px 600px at 50% 30%, #3a6a60, #12262c)';
 
 const bootMsg = (t) => { const el = document.getElementById('boot-msg'); if (el) el.textContent = t; };
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -51,7 +83,8 @@ async function main() {
   engine.setMode(settings.mode);
 
   const env = {
-    sys, engine, scenario, wm, ui, settings, user: scenario.user, desktop: null, params,
+    sys, engine, scenario, wm, ui, settings, user: scenario.user, desktop: null, params, os: OS, browser: BROWSER,
+    switchOs() { store.del(OS_KEY); location.href = location.pathname; },
     saveSettings() { store.set(SET_KEY, settings); },
     userFs() { return new FsView(sys.vfs, users.credFor(sys, env.user)); },
     async openApp(id, opts = {}) {
@@ -62,7 +95,7 @@ async function main() {
       try {
         if (fs.isDir(path)) return env.openApp('nemo', { path });
         if (/\.desktop$/.test(path)) { const d = parseDesktop(fs.readFile(path)); return runExec(env, d.Exec || '', { cwd: path.slice(0, path.lastIndexOf('/')) }); }
-        if (/\.html?$/i.test(path)) return env.openApp('firefox', { args: ['file://' + path] });
+        if (/\.html?$/i.test(path)) return env.openApp(BROWSER, { args: ['file://' + path] });
         if (/\.(mp3|ogg|wav|flac|mp4|mkv|avi|png|jpe?g|gif)$/i.test(path)) return env.openApp('generic', { title: path.split('/').pop(), icon: /\.(mp3|ogg|wav|flac)$/i.test(path) ? 'music' : /\.(mp4|mkv|avi)$/i.test(path) ? 'video' : 'image' });
         return env.openApp('xed', { args: [path], ...opts });
       } catch (e) { ui.alert({ title: 'Error', heading: `Could not open “${path.split('/').pop()}”`, message: e.text || e.message, icon: 'error' }); return null; }
@@ -92,7 +125,7 @@ async function main() {
     },
   };
   window.cpsim = env;
-  env.desktop = new Desktop(env);
+  env.desktop = OS === 'ubuntu' ? new UbuntuDesktop(env) : new Desktop(env);
 
   // ---- scoring notifications
   engine.on('score', ({ gained, lost, penalized, cleared }) => {
@@ -151,7 +184,7 @@ function showWelcome(env) {
       h('p', null, 'Start by opening the “Scenario README” on the desktop, then secure the computer. Open the “Scoring Report” to see your points. You can answer the two Forensics Questions by editing the files on the desktop.'),
       h('p', null, h('b', null, 'Your login: '), `${env.scenario.user} / ${env.scenario.password}`),
       h('p', { style: { fontSize: '12px', color: '#6c7378' } }, 'Progress is saved in this browser. Use the chart icon in the panel for hints, scoring speed and reset.'))),
-    h('div', { class: 'df' }, h('button', { class: 'btn primary', onclick: () => { done(true); env.openApp('chromium', { args: ['file:///opt/CyberPatriot/README.html'] }); } }, 'Open the README'), h('button', { class: 'btn', onclick: () => done(true) }, 'Start')),
+    h('div', { class: 'df' }, h('button', { class: 'btn primary', onclick: () => { done(true); env.openApp(BROWSER, { args: ['file:///opt/CyberPatriot/README.html'] }); } }, 'Open the README'), h('button', { class: 'btn', onclick: () => done(true) }, 'Start')),
   ));
 }
 
@@ -160,7 +193,7 @@ function showLock(env) {
   const u = users.getUser(env.sys, user);
   const err = h('div', { class: 'err', style: { minHeight: '16px', color: '#ff9a94', fontSize: '12px' } });
   const pw = h('input', { class: 'in', type: 'password', placeholder: 'Password', style: { width: '240px' }, onkeydown: (e) => { if (e.key === 'Enter') { if (users.checkPassword(env.sys, user, pw.value)) lock.remove(); else { err.textContent = 'Incorrect password, please try again'; pw.value = ''; } } } });
-  const lock = h('div', { style: { position: 'absolute', inset: 0, zIndex: 9950, background: 'radial-gradient(900px 600px at 50% 30%, #3a6a60, #12262c)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '10px', color: '#fff' } },
+  const lock = h('div', { style: { position: 'absolute', inset: 0, zIndex: 9950, background: LOCK_BG, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '10px', color: '#fff' } },
     icon('users', 80), h('div', { style: { fontSize: '20px' } }, (u.gecos || '').split(',')[0] || user), pw, err, h('div', { style: { fontSize: '12px', opacity: .7 } }, 'Screen locked'));
   document.getElementById('screen').append(lock);
   setTimeout(() => pw.focus(), 30);
@@ -182,7 +215,7 @@ function showGreeter(env) {
   const go = () => {
     const st = users.getShadow(sys, chosen.name);
     if (users.checkPassword(sys, chosen.name, pw.value)) {
-      sys.log('auth.log', 'lightdm', `pam_unix(lightdm:session): session opened for user ${chosen.name}(uid=${chosen.uid}) by (uid=0)`);
+      sys.log('auth.log', OS === 'ubuntu' ? 'gdm-password]' : 'lightdm', `pam_unix(${OS === 'ubuntu' ? 'gdm-password' : 'lightdm'}:session): session opened for user ${chosen.name}(uid=${chosen.uid}) by (uid=0)`);
       env.user = chosen.name; g.remove(); env.desktop.renderIcons(); env.desktop.menuDirty = true; startAutostart(env);
     } else { err.textContent = st && st.hash.startsWith('!') ? 'Account is locked' : 'Incorrect password, please try again'; pw.value = ''; sys.log('auth.log', 'lightdm', `pam_unix(lightdm:auth): authentication failure; logname= uid=0 euid=0 tty=:0 ruser= rhost=  user=${chosen.name}`); }
   };
@@ -190,7 +223,7 @@ function showGreeter(env) {
     h('div', { style: { opacity: .7, marginBottom: '4px' } }, 'Users'),
     ...list.map((u) => h('div', { style: { padding: '5px 10px', borderRadius: '4px', cursor: 'default', background: 'rgba(255,255,255,.12)' }, onclick: () => { chosen = u; pw.value = ''; err.textContent = ''; render(); pw.focus(); } }, u.name)),
     guest ? h('div', { style: { padding: '5px 10px', borderRadius: '4px', background: 'rgba(255,255,255,.12)' }, onclick: () => { err.textContent = 'Guest sessions are not simulated, but the guest login is enabled on this computer.'; } }, 'Guest Session') : null);
-  const g = h('div', { style: { position: 'absolute', inset: 0, zIndex: 9950, background: 'radial-gradient(900px 600px at 50% 30%, #3a6a60, #12262c)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' } }, side, box);
+  const g = h('div', { style: { position: 'absolute', inset: 0, zIndex: 9950, background: LOCK_BG, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' } }, side, box);
   document.getElementById('screen').append(g);
   render();
   setTimeout(() => pw.focus(), 30);

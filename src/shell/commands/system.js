@@ -805,6 +805,7 @@ cmd('editor', (ctx) => editFile(ctx, 'nano', ctx.args));
 
 // ---------------------------------------------------------------- GUI launchers
 const LAUNCH = {
+  nautilus: 'nemo', gedit: 'xed', 'gnome-control-center': 'settings', 'update-manager': 'update', 'software-properties-gtk': 'swprops', 'gnome-software': 'software', 'gnome-session-properties': 'startup', eog: 'generic', evince: 'generic', totem: 'generic', 'gnome-screenshot': 'generic', 'gnome-disk-utility': 'generic', snap: 'generic',
   firefox: 'firefox', chromium: 'chromium', 'chromium-browser': 'chromium', xed: 'xed', nemo: 'nemo', gufw: 'gufw', 'gnome-terminal': 'terminal', 'x-terminal-emulator': 'terminal',
   'cinnamon-settings': 'settings', 'mintupdate': 'update', mintinstall: 'software', mintsources: 'sources', 'gnome-system-monitor': 'monitor',
   'lightdm-settings': 'login', 'cinnamon-session-properties': 'startup', 'users-admin': 'users', 'system-config-printer': 'printers', 'gnome-calculator': 'generic', libreoffice: 'generic', thunderbird: 'generic', celluloid: 'generic', rhythmbox: 'generic', pix: 'generic', xreader: 'generic', timeshift: 'generic', 'transmission-gtk': 'generic',

@@ -10,9 +10,9 @@ export function open(env) {
   const tb = h('tbody');
   const status = h('div', { class: 'statusbar' });
   let installBtn;
-  const win = env.wm.open({ title: 'Update Manager', icon: 'update', width: 760, height: 480, appId: 'update', content: h('div', { class: 'app-body' },
-    h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: refresh }, 'Refresh'), h('button', { class: 'btn', onclick: () => { sel.clear(); pk.upgradable(sys).forEach((u) => sel.add(u.name)); draw(); } }, 'Select All'), h('button', { class: 'btn', onclick: () => { sel.clear(); draw(); } }, 'Clear'), installBtn = h('button', { class: 'btn primary', onclick: install }, 'Install Updates'), h('span', { class: 'sp' }), h('button', { class: 'btn', onclick: prefs }, 'Preferences')),
-    h('div', { class: 'scroll', style: { flex: 1, background: '#fff' } }, h('table', { class: 'grid' }, h('thead', null, h('tr', null, ['', 'Package', 'Old version', 'New version', 'Size'].map((x) => h('th', null, x)))), tb)), status) });
+  const win = env.wm.open({ title: env.os === 'ubuntu' ? 'Software Updater' : 'Update Manager', icon: 'update', width: 760, height: 480, appId: 'update', content: h('div', { class: 'app-body' },
+    h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: refresh }, 'Refresh'), h('button', { class: 'btn', onclick: () => { sel.clear(); pk.upgradable(sys).forEach((u) => sel.add(u.name)); draw(); } }, 'Select All'), h('button', { class: 'btn', onclick: () => { sel.clear(); draw(); } }, 'Clear'), installBtn = h('button', { class: 'btn primary', onclick: install }, env.os === 'ubuntu' ? 'Install Now' : 'Install Updates'), h('span', { class: 'sp' }), h('button', { class: 'btn', onclick: prefs }, env.os === 'ubuntu' ? 'Settings…' : 'Preferences')),
+    h('div', { class: 'scroll', style: { flex: 1, background: 'var(--surface)' } }, h('table', { class: 'grid' }, h('thead', null, h('tr', null, ['', 'Package', 'Old version', 'New version', 'Size'].map((x) => h('th', null, x)))), tb)), status) });
   const unsub = sys.on('change', (k) => { if (k === 'packages') draw(); });
   win.onClose(() => unsub());
   function draw() {
@@ -20,7 +20,7 @@ export function open(env) {
     clear(tb);
     const ups = pk.upgradable(sys);
     for (const u of ups) tb.append(h('tr', null, h('td', null, h('input', { type: 'checkbox', checked: sel.has(u.name), onchange: (e) => { e.target.checked ? sel.add(u.name) : sel.delete(u.name); } })), h('td', null, u.name), h('td', null, u.from), h('td', null, u.to), h('td', null, u.size ? `${u.size} kB` : '')));
-    status.textContent = ups.length ? `${ups.length} update${ups.length > 1 ? 's' : ''} available` : 'Your system is up to date';
+    status.textContent = ups.length ? `${ups.length} update${ups.length > 1 ? 's' : ''} available` : env.os === 'ubuntu' ? 'The software on this computer is up to date.' : 'Your system is up to date';
     installBtn.disabled = !ups.length;
   }
   async function refresh() {
@@ -36,6 +36,7 @@ export function open(env) {
     env.ui.toast({ title: 'Update Manager', message: `${names.length} update${names.length > 1 ? 's' : ''} installed.`, kind: 'info' });
   }
   async function prefs() {
+    if (env.os === 'ubuntu') { env.openApp('swprops'); return; }
     const ok = await env.ui.authenticate({ message: 'Authentication is required to change the update preferences', action: 'com.linuxmint.mintupdate.prefs', asUser: env.user });
     if (!ok) return;
     await env.ui.modal((done) => {

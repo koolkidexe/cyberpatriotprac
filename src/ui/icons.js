@@ -18,10 +18,11 @@ const G = {
   login: ['#4b5c74', '<rect x="7" y="9" width="34" height="23" rx="3" fill="#fff"/><circle cx="24" cy="17" r="4" fill="#4b5c74"/><path d="M16 28c0-5 4-7 8-7s8 2 8 7z" fill="#4b5c74"/><path d="M16 38h16" stroke="#fff" stroke-width="3" stroke-linecap="round"/>'],
   startup: ['#d9822b', '<path d="M24 7c7 4 10 12 8 21l-5 5h-6l-5-5c-2-9 1-17 8-21z" fill="#fff"/><circle cx="24" cy="19" r="3.500" fill="#d9822b"/><path d="M16 31l-5 7 8-2M32 31l5 7-8-2" fill="#fff" opacity=".8"/>'],
   update: ['#3b7dd8', '<circle cx="24" cy="24" r="15" fill="#fff"/><path d="M24 13v12l8 5" fill="none" stroke="#3b7dd8" stroke-width="3.500" stroke-linecap="round" stroke-linejoin="round"/>'],
-  lock: ['#6c7a89', '<rect x="11" y="21" width="26" height="19" rx="3" fill="#fff"/><path d="M16 21v-5a8 8 0 0116 0v5" fill="none" stroke="#fff" stroke-width="4"/><circle cx="24" cy="30" r="3" fill="#6c7a89"/>'],
-  power: ['#c0392b', '<path d="M24 8v14" stroke="#fff" stroke-width="4.500" stroke-linecap="round"/><path d="M15 15a14 14 0 1018 0" fill="none" stroke="#fff" stroke-width="4.500" stroke-linecap="round"/>'],
-  logout: ['#e08e2b', '<path d="M18 8h-6c-2 0-3 1-3 3v26c0 2 1 3 3 3h6" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M22 24h17m-6-7l7 7-7 7" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'],
+  lock: ['#1f2123', '<rect x="11" y="21" width="26" height="19" rx="3" fill="#fff"/><path d="M16 21v-5a8 8 0 0116 0v5" fill="none" stroke="#fff" stroke-width="4"/><circle cx="24" cy="30" r="3" fill="#6c7a89"/>'],
+  power: ['#d9322a', '<path d="M24 8v14" stroke="#fff" stroke-width="4.500" stroke-linecap="round"/><path d="M15 15a14 14 0 1018 0" fill="none" stroke="#fff" stroke-width="4.500" stroke-linecap="round"/>'],
+  logout: ['#1f2123', '<path d="M18 8h-6c-2 0-3 1-3 3v26c0 2 1 3 3 3h6" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M22 24h17m-6-7l7 7-7 7" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'],
   trash: ['#7f8c8d', '<path d="M12 14h24l-2 25c0 1-1 2-2 2H16c-1 0-2-1-2-2z" fill="#fff"/><path d="M10 14h28M19 14v-4h10v4" stroke="#fff" stroke-width="3.500" stroke-linecap="round" fill="none"/><path d="M20 21v14M28 21v14" stroke="#7f8c8d" stroke-width="2.500"/>'],
+  computer: ['#6c7a89', '<rect x="8" y="9" width="32" height="22" rx="2.500" fill="#dfe5e8"/><rect x="11" y="12" width="26" height="16" fill="#4a5560"/><path d="M18 38h12M24 31v7" stroke="#fff" stroke-width="3.500" stroke-linecap="round"/>'],
   home: ['#8fa876', '<path d="M6 24L24 8l18 16" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 22v17h8v-10h8v10h8V22L24 12z" fill="#fff"/>'],
   disk: ['#7f8c8d', '<rect x="7" y="14" width="34" height="20" rx="3" fill="#fff"/><circle cx="35" cy="24" r="2.500" fill="#7f8c8d"/><path d="M12 24h14" stroke="#7f8c8d" stroke-width="3" stroke-linecap="round"/>'],
   music: ['#9b59b6', '<path d="M19 33V12l18-4v21" fill="none" stroke="#fff" stroke-width="3.500" stroke-linejoin="round"/><circle cx="15" cy="34" r="5" fill="#fff"/><circle cx="33" cy="30" r="5" fill="#fff"/>'],
@@ -41,6 +42,7 @@ const G = {
   score: ['#3f8f5b', '<rect x="8" y="8" width="32" height="32" rx="4" fill="#fff"/><path d="M14 30l6-6 5 4 9-11" fill="none" stroke="#3f8f5b" stroke-width="3.800" stroke-linecap="round" stroke-linejoin="round"/>'],
 };
 const ALIAS = {
+  nautilus: 'folder', gedit: 'text', 'gnome-control-center': 'gear', 'update-manager': 'update', 'software-properties-gtk': 'refresh', 'gnome-software': 'bag', eog: 'image', evince: 'file', totem: 'video', 'gnome-screenshot': 'image', 'gnome-disk-utility': 'disk', 'gnome-startup-applications': 'startup',
   'utilities-terminal': 'terminal', 'gnome-terminal': 'terminal', 'preferences-system': 'gear', 'cinnamon-settings': 'gear', 'preferences-desktop': 'gear', 'system-software-install': 'bag', mintinstall: 'bag',
   mintupdate: 'update', 'system-software-update': 'update', gufw: 'shield', 'security-high': 'shield', 'text-html': 'html', 'text-x-generic': 'text', 'accessories-text-editor': 'text', xed: 'text', 'text-editor': 'text',
   'system-file-manager': 'folder', nemo: 'folder', 'folder-home': 'home', 'user-trash': 'trash', 'user-trash-full': 'trash', 'application-x-executable': 'app', 'applications-internet': 'firefox',
@@ -55,10 +57,11 @@ let customLogo = null;
 export function setCustomLogo(url) { customLogo = url; }
 
 export function iconSvg(name, size = 32) {
-  if (name === 'cyberpatriot' && customLogo) return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><image href="${customLogo}" x="0" y="0" width="48" height="48" preserveAspectRatio="xMidYMid meet"/></svg>`;
+  if (name === 'cyberpatriot' && customLogo) return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="23.5" fill="#fff"/><image href="${customLogo}" x="0" y="0" width="48" height="48" preserveAspectRatio="xMidYMid meet"/></svg>`;
   const key = G[name] ? name : ALIAS[name] || 'app';
   const [bg, body] = G[key];
-  const tile = ['folder', 'folder-open', 'file', 'text', 'html', 'info', 'error', 'question', 'warn'].includes(key) && key !== 'folder' && key !== 'folder-open' ? '' : `<rect x="1" y="1" width="46" height="46" rx="10" fill="${bg}"/>`;
+  const folderish = key === 'folder' || key === 'folder-open' || key === 'home';
+  const tile = ['folder', 'folder-open', 'file', 'text', 'html', 'info', 'error', 'question', 'warn'].includes(key) && key !== 'folder' && key !== 'folder-open' ? '' : `<rect x="1" y="1" width="46" height="46" rx="10" fill="${bg}"${folderish ? ` style="fill:var(--folder,${bg})"` : ''}/>`;
   const flat = ['file', 'text', 'html', 'info', 'error', 'question', 'warn'].includes(key);
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true">${flat ? '' : tile}${body}</svg>`;
 }

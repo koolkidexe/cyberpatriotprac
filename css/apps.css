@@ -83,3 +83,10 @@
 .chr .ff-tab.on { background: #fff; }
 .chr .ff-nav { background: #fff; }
 .chr .urlbar { background: #f1f3f4 !important; border-color: transparent !important; }
+
+/* file manager icon view */
+.fm-grid { display: grid; grid-template-columns: repeat(auto-fill, 104px); gap: 6px; padding: 12px; align-content: start; }
+.fm-grid .gi { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 6px; text-align: center; cursor: default; }
+.fm-grid .gi .gn { font-size: 12px; line-height: 1.2; word-break: break-word; max-height: 3.6em; overflow: hidden; }
+.fm-grid .gi:hover:not(.sel) { background: #eef3e8; }
+.fm-grid .gi.sel { background: var(--accent); color: #fff; }
