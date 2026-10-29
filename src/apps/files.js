@@ -6,8 +6,8 @@ import * as users from '../core/users.js';
 import { posix, fmtLsDate, humanSize } from '../core/util.js';
 import { trashPath, uniqueName, modeString, ensureTrash } from './files-util.js';
 
-const PLACES_UBUNTU = [['Recent', 'info', (h0) => h0], ['Starred', 'info', (h0) => h0], ['Home', 'home', (h0) => h0], ['Desktop', 'folder', (h0) => `${h0}/Desktop`], ['Documents', 'folder', (h0) => `${h0}/Documents`], ['Downloads', 'folder', (h0) => `${h0}/Downloads`], ['Music', 'music', (h0) => `${h0}/Music`], ['Pictures', 'image', (h0) => `${h0}/Pictures`], ['Videos', 'video', (h0) => `${h0}/Videos`], ['Trash', 'trash', (h0) => `${h0}/.local/share/Trash/files`], ['Other Locations', 'disk', () => '/']];
-const PLACES = [['Home', 'home', (h0) => h0], ['Desktop', 'folder', (h0) => `${h0}/Desktop`], ['Documents', 'folder', (h0) => `${h0}/Documents`], ['Downloads', 'folder', (h0) => `${h0}/Downloads`], ['Music', 'music', (h0) => `${h0}/Music`], ['Pictures', 'image', (h0) => `${h0}/Pictures`], ['Videos', 'video', (h0) => `${h0}/Videos`], ['Trash', 'trash', (h0) => `${h0}/.local/share/Trash/files`], ['File System', 'disk', () => '/']];
+const PLACES_UBUNTU = [['Recent', 'info', (h0) => h0], ['Starred', 'info', (h0) => h0], ['Home', 'home', (h0) => h0], ['Desktop', 'folder', (h0) => `${h0}/Desktop`], ['Documents', 'folder', (h0) => `${h0}/Documents`], ['Downloads', 'folder', (h0) => `${h0}/Downloads`], ['Music', 'music', (h0) => `${h0}/Music`], ['Pictures', 'image', (h0) => `${h0}/Pictures`], ['Videos', 'folder-videos', (h0) => `${h0}/Videos`], ['Trash', 'trash', (h0) => `${h0}/.local/share/Trash/files`], ['Other Locations', 'disk', () => '/']];
+const PLACES = [['Home', 'folder-home', (h0) => h0], ['Desktop', 'folder-desktop', (h0) => `${h0}/Desktop`], ['Documents', 'folder-documents', (h0) => `${h0}/Documents`], ['Downloads', 'folder-downloads', (h0) => `${h0}/Downloads`], ['Music', 'folder-music', (h0) => `${h0}/Music`], ['Pictures', 'folder-pictures', (h0) => `${h0}/Pictures`], ['Videos', 'folder-videos', (h0) => `${h0}/Videos`], ['Trash', 'trash', (h0) => `${h0}/.local/share/Trash/files`], ['File System', 'disk', () => '/']];
 
 export function open(env, opts = {}) {
   const sys = env.sys;
@@ -27,11 +27,11 @@ export function open(env, opts = {}) {
   const titleOf = (path) => (path === `${home}/.local/share/Trash/files` ? 'Trash' : posix.basename(path) || 'File System');
   const addr = h('input', { class: 'in', style: { flex: 1 }, onkeydown: (e) => { if (e.key === 'Enter') { go(addr.value.replace(/^~/, home)); endEdit(); } else if (e.key === 'Escape') { addr.value = cwd; endEdit(); } }, onblur: () => endEdit() });
   // Nautilus-style breadcrumb path bar (Ubuntu); clicking the empty part or Ctrl+L switches to a text location entry
-  const pathbar = ub ? h('div', { class: 'pathbar', onclick: (e) => { if (e.target === pathbar) editAddr(); } }) : null;
-  const editAddr = () => { if (!ub) return; pathbar.style.display = 'none'; addr.style.display = ''; addr.focus(); addr.select(); };
-  const endEdit = () => { if (!ub) return; addr.style.display = 'none'; pathbar.style.display = ''; };
+  // Nemo (Mint) shows path buttons too; the pencil button or Ctrl+L switches to a typed location
+  const pathbar = h('div', { class: ub ? 'pathbar' : 'pathbar nemo-path', title: ub ? null : 'Click a folder to go there. Ctrl+L to type a location', onclick: (e) => { if (e.target === pathbar) editAddr(); } });
+  const editAddr = () => { pathbar.style.display = 'none'; addr.style.display = ''; addr.focus(); addr.select(); };
+  const endEdit = () => { addr.style.display = 'none'; pathbar.style.display = ''; };
   const renderPath = () => {
-    if (!ub) return;
     clear(pathbar);
     const inHome = cwd === home || cwd.startsWith(home + '/');
     const segs = [];
@@ -39,7 +39,8 @@ export function open(env, opts = {}) {
     else { segs.push(['', '/', 'disk']); let acc = ''; for (const part of cwd.split('/').filter(Boolean)) { acc += '/' + part; segs.push([part, acc]); } }
     segs.forEach(([label, path, ic], i) => {
       if (i) pathbar.append(h('span', { class: 'sep' }, '›'));
-      pathbar.append(h('div', { class: 'seg' + (i === segs.length - 1 ? ' cur' : ''), onclick: () => go(path) }, ic ? icon(ic, 16) : null, label || null));
+      const lab = ub ? label : ic === 'home' ? posix.basename(home) : (label || 'File System');
+      pathbar.append(h('div', { class: 'seg' + (i === segs.length - 1 ? ' cur' : ''), title: path, onclick: () => go(path) }, ic ? icon(ic, 16) : null, lab || null));
     });
   };
   const mkBtn = (txt, title, fn) => h('button', { class: 'btn', title, style: { minWidth: '30px', padding: '2px 8px' }, onclick: fn }, txt);
@@ -47,9 +48,15 @@ export function open(env, opts = {}) {
   const fwd = mkBtn('▶', 'Forward', () => { if (hpos < hist.length - 1) { hpos++; show(hist[hpos], false); } });
   const up = mkBtn('▲', 'Up', () => go(posix.dirname(cwd) || '/'));
   const viewBtn = mkBtn('☰', 'List view', () => { view = view === 'grid' ? 'list' : 'grid'; viewBtn.textContent = view === 'grid' ? '☰' : '▦'; viewBtn.title = view === 'grid' ? 'List view' : 'Icon view'; render(); });
-  const tb = h('div', { class: 'toolbar' }, back, fwd, ...(ub ? [] : [up]), ...(ub ? [pathbar] : []), addr, mkBtn('⟳', 'Reload', () => render()), viewBtn);
-  if (ub) addr.style.display = 'none';
-  const side = h('div', { class: 'fm-side' }, (env.os === 'ubuntu' ? PLACES_UBUNTU : PLACES).map(([n, ic, f]) => h('div', { class: 'pl', onclick: () => { if (n === 'Trash' && !asRoot) { try { ensureTrash(sys, cred, user); } catch { /* ignore */ } } go(f(home)); } }, icon(ic, 18), n)));
+  const locBtn = mkBtn('✎', 'Toggle location entry (Ctrl+L)', () => (addr.style.display === 'none' ? editAddr() : endEdit()));
+  const searchBtn = mkBtn('🔍', 'Search for files', async () => { const q = await env.ui.prompt({ title: 'Search', message: `Search in ${cwd} for names containing:` }); if (!q) return;
+    const hits = []; const walk = (d, depth) => { if (depth > 6 || hits.length > 40) return; let names = []; try { names = fs.readdir(d); } catch { return; } for (const n of names) { const p = d === '/' ? '/' + n : `${d}/${n}`; if (n.toLowerCase().includes(q.toLowerCase())) hits.push(p); try { if (fs.isDir(p) && !fs.lstat(p).target) walk(p, depth + 1); } catch { /* ignore */ } } };
+    walk(cwd, 0);
+    env.ui.alert({ title: 'Search results', heading: `${hits.length}${hits.length > 40 ? '+' : ''} match${hits.length === 1 ? '' : 'es'} for “${q}” in ${cwd}`, message: hits.slice(0, 40).join('\n') || 'No files found.', icon: 'info' }); });
+  const tb = ub ? h('div', { class: 'toolbar' }, back, fwd, pathbar, addr, mkBtn('⟳', 'Reload', () => render()), viewBtn)
+    : h('div', { class: 'toolbar nemo-tb' }, back, fwd, up, mkBtn('⟳', 'Reload', () => render()), h('i', { class: 'tsep' }), mkBtn('🖥', 'Go to Computer (File System)', () => go('/')), mkBtn('⌂', 'Go to your Home folder', () => go(home)), locBtn, pathbar, addr, searchBtn, h('div', { class: 'seg-grp' }, viewBtn));
+  addr.style.display = 'none';
+  const side = h('div', { class: 'fm-side' }, ub ? null : h('div', { class: 'fm-head', title: 'Places on this computer' }, 'My Computer'), (env.os === 'ubuntu' ? PLACES_UBUNTU : PLACES).map(([n, ic, f]) => h('div', { class: 'pl', title: n === 'File System' ? '/' : f(home), onclick: () => { if (n === 'Trash' && !asRoot) { try { ensureTrash(sys, cred, user); } catch { /* ignore */ } } go(f(home)); } }, icon(ic, 18), n)));
   const tbody = h('tbody');
   const table = h('table', { class: 'grid fm-table' }, h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', { style: { width: '90px' } }, 'Size'), h('th', { style: { width: '130px' } }, 'Type'), h('th', { style: { width: '150px' } }, 'Modified'))), tbody);
   const gridEl = h('div', { class: 'fm-grid' });
@@ -119,7 +126,7 @@ export function open(env, opts = {}) {
     });
     for (const it of items) {
       if (view === 'grid') {
-        gridEl.append(h('div', { class: 'gi', ...hand(it) }, icon(fileIconName(it.n, it.isDir), 56), h('div', { class: 'gn' }, it.n)));
+        gridEl.append(h('div', { class: 'gi', title: `${it.n}${it.isDir ? ' (folder)' : ''} — double-click to open, right-click for more`, ...hand(it) }, icon(fileIconName(it.n, it.isDir), 56), h('div', { class: 'gn' }, it.n)));
         continue;
       }
       const tr = h('tr', hand(it),
@@ -134,7 +141,7 @@ export function open(env, opts = {}) {
   function renderSel() {
     for (const tr of tbody.children) tr.classList.toggle('sel', sel.has(tr.dataset.n));
     for (const g of gridEl.children) g.classList.toggle('sel', sel.has(g.dataset.n));
-    status.textContent = sel.size ? `${sel.size} item${sel.size === 1 ? '' : 's'} selected` : `${items.length} items`;
+    status.textContent = sel.size ? `${sel.size === 1 ? `“${[...sel][0]}” selected` : `${sel.size} items selected`}${ub ? '' : ', Free space: 18.6 GB'}` : `${items.length} item${items.length === 1 ? '' : 's'}${ub ? '' : ', Free space: 18.6 GB'}`;
   }
   function openItem(it) {
     if (it.isDir) { go(it.p); return; }
@@ -245,7 +252,7 @@ export function open(env, opts = {}) {
       perms();
     };
     const tabBasic = h('div', { class: 'tab on', onclick: () => { tabBasic.classList.add('on'); tabPerm.classList.remove('on'); basic(); } }, 'Basic');
-    const tabPerm = h('div', { class: 'tab', onclick: () => { tabPerm.classList.add('on'); tabBasic.classList.remove('on'); perms(); } }, 'Permissions');
+    const tabPerm = h('div', { class: 'tab', title: 'Owner, group and access rights', onclick: () => { tabPerm.classList.add('on'); tabBasic.classList.remove('on'); perms(); } }, 'Permissions');
     tabs.append(tabBasic, tabPerm);
     basic();
     void canChown;

@@ -12,8 +12,12 @@ export function open(env) {
   const home = users.getUser(sys, user).home;
   const dir = `${home}/.config/autostart`;
   const listEl = h('div', { class: 'listbox', style: { flex: 1, margin: '8px' } });
-  const win = env.wm.open({ title: 'Startup Applications Preferences', icon: 'startup', width: 560, height: 400, appId: 'startup', content: h('div', { class: 'app-body' }, listEl,
-    h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: add }, 'Add'), h('button', { class: 'btn', onclick: remove }, 'Remove'), h('button', { class: 'btn', onclick: edit }, 'Edit'))) });
+  let win;
+  const ubBtns = env.os === 'ubuntu' ? h('div', { class: 'gsp-btns' }, h('button', { class: 'btn', title: 'Add a startup program', onclick: () => add() }, 'Add'), h('button', { class: 'btn', title: 'Remove the selected startup program', onclick: () => remove() }, 'Remove'), h('button', { class: 'btn', title: 'Edit the selected startup program', onclick: () => edit() }, 'Edit')) : null;
+  if (ubBtns) { const content = h('div', { class: 'app-body' }, h('div', { class: 'gsp-head' }, 'Additional startup programs:'), h('div', { class: 'gsp-row' }, listEl, ubBtns), h('div', { class: 'gsp-foot' }, h('button', { class: 'btn', title: 'Close', onclick: () => win.close() }, 'Close')));
+    win = env.wm.open({ title: 'Startup Applications Preferences', icon: 'startup', width: 600, height: 420, appId: 'startup', content }); }
+  else win = env.wm.open({ title: 'Startup Applications', icon: 'startup', width: 560, height: 400, appId: 'startup', content: h('div', { class: 'app-body' }, listEl,
+    h('div', { class: 'toolbar' }, h('button', { class: 'btn', title: 'Add a startup program', onclick: add }, '＋'), h('button', { class: 'btn', title: 'Remove the selected startup program', onclick: remove }, '－'), h('button', { class: 'btn', title: 'Edit the selected startup program', onclick: edit }, 'Edit'), h('span', { style: { flex: 1 } }), h('button', { class: 'btn', title: 'Run the selected program now', onclick: () => { const it = entries().find((x) => x.n === sel); if (it) env.ui.toast({ title: 'Startup Applications', message: `Started: ${it.e.Exec || it.n}`, kind: 'info' }); } }, 'Run now'))) });
   let sel = null;
   const unsub = sys.on('change', (k) => { if (k === 'fs') draw(); });
   win.onClose(() => unsub());
@@ -31,8 +35,10 @@ export function open(env) {
     if (sel && !es.some((x) => x.n === sel)) sel = null;
     for (const it of es) {
       listEl.append(h('div', { class: 'li' + (sel === it.n ? ' sel' : ''), onclick: () => { sel = it.n; draw(); } },
-        h('input', { type: 'checkbox', checked: it.on, onclick: (e) => e.stopPropagation(), onchange: (e) => toggle(it, e.target.checked) }), icon('app', 24),
-        h('div', null, h('div', { style: { fontWeight: 600 } }, it.e.Name || it.n), h('div', { style: { fontSize: '11px', opacity: .8 } }, it.e.Comment || it.e.Exec || ''))));
+        icon(it.e.Icon || 'app', 32),
+        h('div', { style: { flex: 1, minWidth: 0 } }, h('div', { style: { fontWeight: 600 } }, it.e.Name || it.n), h('div', { style: { fontSize: '11px', opacity: .8 } }, it.e.Comment || it.e.Exec || ''), h('div', { style: { fontSize: '11px', opacity: .6 } }, `Delay: ${it.e['X-GNOME-Autostart-Delay'] || 'none'} · ${it.mine ? it.path.replace(home, '~') : it.path}`)),
+        env.os === 'ubuntu' ? null : h('span', { class: 'sw' + (it.on ? ' on' : ''), title: it.on ? 'Disable this startup program' : 'Enable this startup program', onclick: (e) => { e.stopPropagation(); toggle(it, !it.on); } })));
+      if (env.os === 'ubuntu') listEl.lastChild.prepend(h('input', { type: 'checkbox', checked: it.on, title: it.on ? 'Disable this startup program' : 'Enable this startup program', onclick: (e) => e.stopPropagation(), onchange: (e) => toggle(it, e.target.checked) }));
     }
   }
   function toggle(it, on) {

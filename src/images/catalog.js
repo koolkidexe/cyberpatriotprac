@@ -172,6 +172,7 @@ pkg('john-data', '1.9.0-2build2', 'active password cracking tool - charset files
 pkg('aisleriot', '1:3.22.32-1', 'GNOME solitaire card game collection', { s: 'games', bins: ['/usr/games/sol'], size: 16200, gui: { title: 'AisleRiot Solitaire', summary: 'Play a selection of card games', cat: 'Games' } });
 
 // installable extras: some are tempting (security tools) and some are traps (open ports)
+pkg('ophcrack', '3.8.0-2', 'Microsoft Windows password cracker using rainbow tables', { s: 'utils', bins: ['/usr/bin/ophcrack'], size: 1150, gui: { title: 'ophcrack', summary: 'Crack Windows passwords with rainbow tables', cat: 'System' } });
 pkg('nmap', '7.94+git20230807.3be01efb1+dfsg-3build2', 'The Network Mapper', { s: 'net', bins: ['/usr/bin/nmap'], size: 4900 });
 pkg('wireshark', '4.2.2-1.1build3', 'network traffic analyzer - meta-package', { s: 'net', bins: ['/usr/bin/wireshark'], size: 20400, gui: { title: 'Wireshark', summary: 'Network protocol analyzer', cat: 'Internet' } });
 pkg('hydra', '9.5-1build2', 'very fast network logon cracker', { s: 'net', bins: ['/usr/bin/hydra'], size: 780 });

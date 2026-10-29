@@ -34,22 +34,84 @@ export function open(env, opts = {}) {
     return !!(st.mode & bit);
   }
 
-  const ta = h('textarea', { class: 'xed-ta', spellcheck: false, value: text, oninput: () => { if (!dirty) { dirty = true; retitle(); } } });
-  const pos = h('span', null, 'Ln 1, Col 1');
+  function titleOf() { return `${dirty ? '*' : ''}${path ? posix.basename(path) : 'Unsaved Document 1'}${path ? ` (${posix.dirname(path)})` : ''} - ${appName}${user === 'root' ? ' (as root)' : ''}`; }
+  const gedit = env.os === 'ubuntu';
+  const appName = gedit ? 'gedit' : 'xed';
+  const ta = h('textarea', { class: 'xed-ta', spellcheck: false, value: text, oninput: () => { if (!dirty) { dirty = true; retitle(); } drawGutter(); } });
+  const gutter = h('div', { class: 'xed-gutter' });
+  const drawGutter = () => {
+    const n = ta.value.split('\n').length;
+    if (gutter.childElementCount !== n) gutter.textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n');
+    gutter.scrollTop = ta.scrollTop;
+  };
+  ta.addEventListener('scroll', () => { gutter.scrollTop = ta.scrollTop; });
+  const pos = h('span', { class: 'sb-seg', title: 'Cursor position' }, 'Ln 1, Col 1');
   const upd = () => { const v = ta.value.slice(0, ta.selectionStart); const l = v.split('\n'); pos.textContent = `Ln ${l.length}, Col ${l[l.length - 1].length + 1}`; };
   ta.addEventListener('keyup', upd); ta.addEventListener('click', upd);
-  ta.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); save(); } });
 
-  const menu = h('div', { class: 'menubar' },
-    h('div', { class: 'mi', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom, [{ label: 'New', action: () => open(env, { user }) }, { label: 'Open…', action: openDlg }, { label: 'Save    Ctrl+S', action: save }, { label: 'Save As…', action: saveAs }, 'sep', { label: 'Close', action: () => win.close() }]); } }, 'File'),
-    h('div', { class: 'mi', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom, [{ label: 'Select All', action: () => ta.select() }, { label: 'Go to Line…', action: gotoLine }]); } }, 'Edit'));
-  const tb = h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: openDlg }, 'Open'), h('button', { class: 'btn', onclick: save }, 'Save'));
-  const status = h('div', { class: 'statusbar', style: { display: 'flex', justifyContent: 'space-between' } }, pos, h('span', null, 'Plain Text   Tab Width: 8   INS'));
-  const content = h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, menu, tb, ta, status);
-  const titleOf = () => `${dirty ? '*' : ''}${path ? posix.basename(path) : 'Unsaved Document 1'}${path ? ` (${posix.dirname(path)})` : ''} - ${env.os === 'ubuntu' ? 'gedit' : 'xed'}${user === 'root' ? ' (as root)' : ''}`;
-  const win = env.wm.open({ title: titleOf(), icon: 'text', width: 700, height: 480, appId: 'xed', content });
-  const retitle = () => win.setTitle(titleOf());
+  // ---- find bar (Ctrl+F)
+  const findIn = h('input', { class: 'in', placeholder: 'Find', title: 'Text to find (Enter = next match)', onkeydown: (e) => { if (e.key === 'Enter') findNext(); if (e.key === 'Escape') { findBar.style.display = 'none'; ta.focus(); } } });
+  const findBar = h('div', { class: 'xed-find', style: { display: 'none' } }, findIn, h('button', { class: 'btn', title: 'Find the next match', onclick: () => findNext() }, 'Find Next'), h('button', { class: 'btn', title: 'Close the find bar', onclick: () => { findBar.style.display = 'none'; } }, '✕'));
+  function showFind() { findBar.style.display = ''; findIn.focus(); findIn.select(); }
+  function findNext() {
+    const q = findIn.value; if (!q) return;
+    const v = ta.value.toLowerCase(); let i = v.indexOf(q.toLowerCase(), ta.selectionEnd);
+    if (i < 0) i = v.indexOf(q.toLowerCase());
+    if (i < 0) { findIn.classList.add('notfound'); return; }
+    findIn.classList.remove('notfound'); ta.focus(); ta.setSelectionRange(i, i + q.length); upd();
+  }
+  const cmd = (c) => () => { ta.focus(); try { document.execCommand(c); } catch { /* ignore */ } };
+  const paste = async () => { ta.focus(); try { const t = await navigator.clipboard.readText(); document.execCommand('insertText', false, t); } catch { env.ui.toast({ title: appName, message: 'Use Ctrl+V to paste.', kind: 'info' }); } };
+  ta.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (e.ctrlKey && k === 's') { e.preventDefault(); save(); } else if (e.ctrlKey && k === 'f') { e.preventDefault(); showFind(); } else if (e.ctrlKey && k === 'i') { e.preventDefault(); gotoLine(); }
+    else if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
+  });
+
+  const fileMenu = () => [{ label: 'New    Ctrl+N', action: () => open(env, { user }) }, { label: 'Open…    Ctrl+O', action: openDlg }, 'sep', { label: 'Save    Ctrl+S', action: save }, { label: 'Save As…    Shift+Ctrl+S', action: saveAs }, { label: 'Revert', action: revert }, 'sep', { label: 'Close    Ctrl+W', action: () => win.close() }];
+  const editMenu = () => [{ label: 'Undo    Ctrl+Z', action: cmd('undo') }, { label: 'Redo    Shift+Ctrl+Z', action: cmd('redo') }, 'sep', { label: 'Cut', action: cmd('cut') }, { label: 'Copy', action: cmd('copy') }, { label: 'Paste', action: paste }, 'sep', { label: 'Select All    Ctrl+A', action: () => ta.select() }];
+  const searchMenu = () => [{ label: 'Find…    Ctrl+F', action: showFind }, { label: 'Find Next', action: findNext }, { label: 'Go to Line…    Ctrl+I', action: gotoLine }];
+  const drop = (items) => (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom, items()); };
+  const status = h('div', { class: 'statusbar xed-status' },
+    h('span', { style: { flex: 1 } }),
+    h('span', { class: 'sb-seg dd', title: 'Highlight mode' }, 'Plain Text ▾'),
+    h('span', { class: 'sb-seg dd', title: 'Tab width' }, `Tab Width: ${gedit ? 8 : 4} ▾`),
+    pos, h('span', { class: 'sb-seg', title: 'Insert mode (press Insert to toggle overwrite)' }, 'INS'));
+  const editorBox = h('div', { class: 'xed-edit' }, gedit ? null : gutter, ta);
+  let content; let win;
+  const tabLabel = h('span', null);
+  if (gedit) {
+    const ttl = h('div', { class: 'gh-title' }, h('div', { class: 'gh-t1' }), h('div', { class: 'gh-t2' }));
+    const bar = h('div', { class: 'gh-bar' },
+      h('div', { class: 'gh-split' }, h('button', { class: 'gh-btn', title: 'Open a file (Ctrl+O)', onclick: openDlg }, 'Open'), h('button', { class: 'gh-btn', title: 'Recent files', onclick: drop(() => [{ label: 'Open…', action: openDlg }]) }, '▾')),
+      h('button', { class: 'gh-btn icon', title: 'Create a new document (Ctrl+N)', onclick: () => open(env, { user }) }, '＋'),
+      ttl,
+      h('button', { class: 'gh-btn', title: 'Save the current file (Ctrl+S)', onclick: save }, 'Save'),
+      h('button', { class: 'gh-btn icon', title: 'Main menu', onclick: drop(() => [{ label: 'Save As…', action: saveAs }, { label: 'Revert', action: revert }, 'sep', ...searchMenu(), 'sep', ...editMenu()]) }, '≡'));
+    content = h('div', { class: 'xed gedit' }, bar, findBar, editorBox, status);
+    win = env.wm.open({ title: titleOf(), icon: 'gedit', width: 720, height: 500, appId: 'xed', content, frameless: true });
+    bar.append(win.controls()); win.makeDraggable(bar);
+    content._ttl = ttl;
+  } else {
+    const menu = h('div', { class: 'menubar' }, [['File', fileMenu], ['Edit', editMenu], ['View', () => [{ label: 'Toolbar', action: () => tb.classList.toggle('hide') }, { label: 'Statusbar', action: () => status.classList.toggle('hide') }, { label: 'Line numbers', action: () => gutter.classList.toggle('hide') }]], ['Search', searchMenu], ['Tools', () => [{ label: 'Check Spelling (not simulated)', action: () => {} }]], ['Documents', () => [{ label: 'Save All', action: save }, { label: 'Close All', action: () => win.close() }]], ['Help', () => [{ label: 'About', action: () => env.ui.alert({ title: 'About Xed', heading: 'Xed 3.4.5', message: 'A small and lightweight text editor (simulated).', icon: 'text' }) }]]]
+      .map(([n, f]) => h('div', { class: 'mi', title: `${n} menu`, onclick: drop(f) }, n)));
+    const b = (glyph, title, fn) => h('button', { class: 'tbi', title, onclick: fn }, glyph);
+    const tb = h('div', { class: 'toolbar xed-tb' }, b('🗋', 'Create a new document', () => open(env, { user })), b('📂', 'Open a file', openDlg), b('💾', 'Save the current file', save), h('i', { class: 'tsep' }),
+      b('↶', 'Undo the last action', cmd('undo')), b('↷', 'Redo the last undone action', cmd('redo')), h('i', { class: 'tsep' }),
+      b('✂', 'Cut the selection', cmd('cut')), b('⧉', 'Copy the selection', cmd('copy')), b('📋', 'Paste the clipboard', paste), h('i', { class: 'tsep' }),
+      b('🔍', 'Search for text', showFind), b('⇄', 'Go to a specific line', gotoLine));
+    const tabs = h('div', { class: 'xed-tabs' }, h('div', { class: 'xed-tab on', title: path || 'Unsaved document' }, tabLabel, h('button', { class: 'bx-tx', title: 'Close document', onclick: () => win.close() }, '✕')));
+    content = h('div', { class: 'xed' }, menu, tb, tabs, findBar, editorBox, status);
+    win = env.wm.open({ title: titleOf(), icon: 'xed', width: 760, height: 520, appId: 'xed', content });
+  }
+  function retitle() {
+    win.setTitle(titleOf());
+    tabLabel.textContent = `${dirty ? '*' : ''}${path ? posix.basename(path) : 'Unsaved Document 1'}`;
+    if (content._ttl) { content._ttl.firstChild.textContent = `${dirty ? '*' : ''}${path ? posix.basename(path) : 'Untitled Document 1'}${readOnly ? ' [Read-Only]' : ''}`; content._ttl.lastChild.textContent = path ? posix.dirname(path).replace(users.getUser(sys, user)?.home || '\u0000', '~') : ''; }
+  }
+  retitle(); drawGutter();
   win.onClose(() => {});
+  async function revert() { try { ta.value = fs.readFile(path); dirty = false; retitle(); drawGutter(); } catch { /* ignore */ } }
 
   async function gotoLine() {
     const n = await env.ui.prompt({ title: 'Go to Line', message: 'Line number:' });

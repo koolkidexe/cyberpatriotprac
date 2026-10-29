@@ -3,10 +3,14 @@ import { h, clear } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { ACCENTS } from '../ui/gnome-shell.js';
 
-const TILES = [
-  ['Users and Groups', 'users', 'users'], ['Login Window', 'login', 'login'], ['Startup Applications', 'startup', 'startup'],
-  ['Firewall', 'shield', 'gufw'], ['Update Manager', 'update', 'update'], ['Software Sources', 'refresh', 'sources'],
-  ['Printers', 'printer', 'printers'], ['System Monitor', 'pulse', 'monitor'], ['Terminal', 'terminal', 'terminal'],
+// cinnamon-settings (Mint 21.3): four sections of modules. A module with an app id opens a working app; the rest open an
+// informational stub, like modules that are not part of the competition surface.
+const SECTIONS = [
+  ['Appearance', [['Backgrounds', 'image'], ['Desklets', 'app'], ['Effects', 'cat-graphics'], ['Extensions', 'app'], ['Font Selection', 'text'], ['Themes', 'cat-prefs']]],
+  ['Preferences', [['Accessibility', 'users'], ['Account Details', 'users', 'users'], ['Applets', 'app'], ['Date & Time', 'calendar'], ['Desktop', 'computer'], ['General', 'gear'], ['Hot Corners', 'show-desktop'],
+    ['Languages', 'info'], ['Notifications', 'info'], ['Panel', 'show-desktop'], ['Preferred Applications', 'cat-prefs'], ['Privacy', 'lock'], ['Screensaver', 'lock', 'lock'], ['Startup Applications', 'startup', 'startup'], ['Window Tiling', 'app'], ['Windows', 'app'], ['Workspaces', 'app']]],
+  ['Hardware', [['Color', 'cat-graphics'], ['Display', 'computer'], ['Keyboard', 'key'], ['Mouse and Touchpad', 'app'], ['Network', 'net'], ['Power Management', 'power'], ['Printers', 'printer', 'printers'], ['Sound', 'volume'], ['System Info', 'info', 'sysinfo'], ['System Monitor', 'pulse', 'monitor']]],
+  ['Administration', [['Driver Manager', 'disk'], ['Firewall', 'shield', 'gufw'], ['Login Window', 'login', 'login'], ['Software Sources', 'refresh', 'sources'], ['Update Manager', 'update', 'update'], ['Users and Groups', 'users', 'users']]],
 ];
 
 function gnomeSettings(env) {
@@ -50,8 +54,34 @@ function gnomeSettings(env) {
   return env.wm.open({ title: 'Settings', icon: 'gear', width: 760, height: 480, appId: 'settings', content: h('div', { style: { display: 'flex', flex: 1, minHeight: 0 } }, side, pane) });
 }
 
-export function open(env) {
+function sysInfo(env) {
+  const sys = env.sys;
+  const os = (sys.vfs.readFile('/etc/os-release').match(/PRETTY_NAME="(.*)"/) || [])[1] || 'Linux Mint';
+  const kv = [['Operating System', `${os} Cinnamon 64-bit`], ['Cinnamon Version', '6.0.4'], ['Linux Kernel', (sys.vfs.isFile('/proc/version') ? sys.vfs.readFile('/proc/version').split(' ')[2] : '5.15.0-91-generic')], ['Processor', 'Intel© Core™ i5-8250U CPU @ 1.60GHz × 2'], ['Memory', '3.8 GiB'], ['Hard Drives', '32.2 GB'], ['Graphics Card', 'VMware SVGA II Adapter']];
+  return env.wm.open({ title: 'System Info', icon: 'info', width: 560, height: 380, appId: 'settings', content: h('div', { class: 'app-body', style: { padding: '24px' } }, h('div', { style: { textAlign: 'center', marginBottom: '16px' } }, icon('mint-logo', 64)),
+    h('div', { class: 'kv', style: { gridTemplateColumns: '170px 1fr' } }, kv.flatMap(([a, b]) => [h('div', { class: 'k' }, a), h('div', null, b)]))) });
+}
+
+export function open(env, opts = {}) {
   if (env.os === 'ubuntu') return gnomeSettings(env);
-  const grid = h('div', { class: 'tiles' }, TILES.map(([n, ic, app]) => h('div', { class: 'tile', ondblclick: () => env.openApp(app), onclick: () => env.openApp(app) }, icon(ic, 40), n)));
-  return env.wm.open({ title: 'System Settings', icon: 'gear', width: 620, height: 400, appId: 'settings', content: h('div', { class: 'app-body' }, grid) });
+  const body = h('div', { class: 'cs-body' });
+  const launch = ([n, ic, app]) => {
+    if (app === 'sysinfo') return sysInfo(env);
+    if (app === 'lock') return env.ui.alert({ title: 'Screensaver', heading: 'Lock settings', message: 'Lock the computer when the screen saver is active: on.\nDelay before starting the screensaver: 15 minutes.\n(Use the menu → Lock Screen to try the lock screen.)', icon: 'lock' });
+    if (app) return env.openApp(app);
+    return env.openApp('generic', { title: n, icon: ic });
+  };
+  const draw = (q = '') => {
+    clear(body);
+    for (const [sec, mods] of SECTIONS) {
+      const m = mods.filter(([n]) => n.toLowerCase().includes(q.toLowerCase()));
+      if (!m.length) continue;
+      body.append(h('div', { class: 'cs-sec' }, sec), h('div', { class: 'cs-grid' }, m.map((mod) => h('div', { class: 'cs-mod' + (mod[2] ? ' live' : ''), title: mod[2] ? `Open ${mod[0]}` : `${mod[0]} (not part of the simulation)`, onclick: () => launch(mod) }, icon(mod[1], 48), h('div', null, mod[0])))));
+    }
+  };
+  const search = h('input', { class: 'in cs-search', placeholder: 'Search', title: 'Search settings modules', oninput: () => draw(search.value) });
+  draw();
+  setTimeout(() => search.focus(), 30);
+  void opts;
+  return env.wm.open({ title: 'System Settings', icon: 'gear', width: 820, height: 600, appId: 'settings', content: h('div', { class: 'cs' }, h('div', { class: 'cs-top' }, search), body) });
 }

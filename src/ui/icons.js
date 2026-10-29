@@ -1,4 +1,12 @@
-// Inline SVG icon set (Mint-Y-ish flat tiles). icon('folder', 32) returns an element.
+// Inline SVG icon set. icon('folder', 32) returns an element.
+// The themed set in icons-apps.js (Mint-Y tiles or Yaru) is used first; G below is the fallback for names it lacks.
+import { APPS } from './icons-apps.js';
+
+let theme = 'mint';
+let uniq = 0;
+/** 'mint' (Mint-Y) or 'yaru' (Ubuntu). */
+export function setIconTheme(t) { theme = t === 'yaru' ? 'yaru' : 'mint'; }
+export const iconTheme = () => theme;
 const G = {
   folder: ['#8fa876', '<path d="M6 14c0-2 1-3 3-3h9l4 4h17c2 0 3 1 3 3v17c0 2-1 3-3 3H9c-2 0-3-1-3-3z" fill="#fff" opacity=".92"/><path d="M6 20h36v15c0 2-1 3-3 3H9c-2 0-3-1-3-3z" fill="#fff"/>'],
   'folder-open': ['#7e9a66', '<path d="M6 14c0-2 1-3 3-3h9l4 4h17c2 0 3 1 3 3v3H6z" fill="#fff" opacity=".7"/><path d="M4 22h40l-4 15c-.4 1.500-1.500 2-3 2H9c-1.500 0-2.500-.6-3-2z" fill="#fff"/>'],
@@ -42,6 +50,10 @@ const G = {
   score: ['#3f8f5b', '<rect x="8" y="8" width="32" height="32" rx="4" fill="#fff"/><path d="M14 30l6-6 5 4 9-11" fill="none" stroke="#3f8f5b" stroke-width="3.800" stroke-linecap="round" stroke-linejoin="round"/>'],
 };
 const ALIAS = {
+  aisleriot: 'cards', 'gnome-aisleriot': 'cards', bulky: 'folder', celluloid: 'cat-sound-video', hypnotix: 'cat-sound-video', drawing: 'cat-graphics', pix: 'image', xreader: 'file',
+  'libreoffice-calc': 'lo-calc', 'libreoffice-writer': 'lo-writer', 'libreoffice-common': 'libreoffice', 'libreoffice-startcenter': 'libreoffice', 'libreoffice-impress': 'lo-impress',
+  cinnamon: 'gear', 'gnome-system-monitor': 'pulse', mintbackup: 'disk', mintreport: 'info', mintsources: 'refresh', mintstick: 'disk', mintwelcome: 'info', onboard: 'key', printer: 'printer',
+  'system-config-printer': 'printer', sticky: 'text', timeshift: 'update', 'transmission-gtk': 'net', warpinator: 'net', ophcrack: 'key', seahorse: 'key', wireshark: 'net',
   nautilus: 'folder', gedit: 'text', 'gnome-control-center': 'gear', 'update-manager': 'update', 'software-properties-gtk': 'refresh', 'gnome-software': 'bag', eog: 'image', evince: 'file', totem: 'video', 'gnome-screenshot': 'image', 'gnome-disk-utility': 'disk', 'gnome-startup-applications': 'startup',
   'utilities-terminal': 'terminal', 'gnome-terminal': 'terminal', 'preferences-system': 'gear', 'cinnamon-settings': 'gear', 'preferences-desktop': 'gear', 'system-software-install': 'bag', mintinstall: 'bag',
   mintupdate: 'update', 'system-software-update': 'update', gufw: 'shield', 'security-high': 'shield', 'text-html': 'html', 'text-x-generic': 'text', 'accessories-text-editor': 'text', xed: 'text', 'text-editor': 'text',
@@ -58,6 +70,11 @@ export function setCustomLogo(url) { customLogo = url; }
 
 export function iconSvg(name, size = 32) {
   if (name === 'cyberpatriot' && customLogo) return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="23.5" fill="#fff"/><image href="${customLogo}" x="0" y="0" width="48" height="48" preserveAspectRatio="xMidYMid meet"/></svg>`;
+  const themed = APPS[name] ? name : APPS[ALIAS[name]] && !G[name] ? ALIAS[name] : null;
+  if (themed) {
+    const id = ++uniq;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true">${APPS[themed](theme).replace(/§/g, '_' + id)}</svg>`;
+  }
   const key = G[name] ? name : ALIAS[name] || 'app';
   const [bg, body] = G[key];
   const folderish = key === 'folder' || key === 'folder-open' || key === 'home';
@@ -72,8 +89,9 @@ export function icon(name, size = 32) {
   s.innerHTML = iconSvg(name, size);
   return s;
 }
+const XDG = { Documents: 'folder-documents', Downloads: 'folder-downloads', Music: 'folder-music', Pictures: 'folder-pictures', Videos: 'folder-videos', Desktop: 'folder-desktop', Templates: 'folder-templates', Public: 'folder-public' };
 export function fileIconName(name, isDir) {
-  if (isDir) return 'folder';
+  if (isDir) return XDG[name] || 'folder';
   if (/^Forensics Question \d+\.txt$/i.test(name) || /^(README|Scenario README|ScoringReport|Scoring Report)(\.(html?|txt|desktop))?$/i.test(name)) return 'cyberpatriot';
   if (/\.(mp3|ogg|wav|flac|m4a)$/i.test(name)) return 'music';
   if (/\.(mp4|mkv|avi|mov|webm)$/i.test(name)) return 'video';

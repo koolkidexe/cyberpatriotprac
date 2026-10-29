@@ -15,8 +15,8 @@ export function open(env) {
   const list = h('div', { class: 'listbox', style: { width: '200px', flex: 'none' } });
   const form = h('div', { class: 'pad', style: { flex: 1, overflow: 'auto' } });
   const lock = h('div', { class: 'lockbar' }, icon('lock', 20), h('span', { style: { flex: 1 } }, 'Some settings are locked. Click the Unlock button to make changes.'), h('button', { class: 'btn', onclick: unlockIt }, 'Unlock'));
-  const add = h('button', { class: 'btn', disabled: true, onclick: addUser }, '+');
-  const rem = h('button', { class: 'btn', disabled: true, onclick: delUser }, '−');
+  const add = h('button', { class: 'btn', title: 'Add a new user account', disabled: true, onclick: addUser }, '+');
+  const rem = h('button', { class: 'btn', title: 'Delete the selected user account', disabled: true, onclick: delUser }, '−');
   const body = h('div', { style: { display: 'flex', flex: 1, minHeight: 0 } }, h('div', { style: { display: 'flex', flexDirection: 'column', padding: '8px', gap: '6px' } }, list, h('div', { class: 'hbox' }, add, rem)), form);
   const win = env.wm.open({ title: env.os === 'ubuntu' ? 'Users' : 'Users and Groups', icon: 'users', width: 640, height: 470, appId: 'users', content: h('div', { class: 'app-body' }, lock, body) });
   const unsub = sys.on('change', (k) => { if (k === 'users' || k === 'fs') draw(); });
@@ -49,7 +49,7 @@ export function open(env) {
     const st = users.passwordState(sh);
     const locked = st === 'L';
     const autologin = autologinUser(sys) === u.name;
-    const sw = (on, fn, dis) => h('span', { class: 'sw' + (on ? ' on' : '') + (dis ? ' dis' : ''), onclick: fn });
+    const sw = (on, fn, dis) => h('span', { class: 'sw' + (on ? ' on' : '') + (dis ? ' dis' : ''), title: dis ? 'Unlock first to change this' : on ? 'Click to turn off' : 'Click to turn on', onclick: fn });
     form.append(h('div', { style: { textAlign: 'center', marginBottom: '12px' } }, icon('users', 64), h('div', { style: { fontSize: '16px', fontWeight: 600 } }, (u.gecos || '').split(',')[0] || u.name)),
       h('div', { class: 'kv' },
         h('div', { class: 'k' }, 'Account type'), typeSel,

@@ -5,6 +5,9 @@ export const AUTHORIZED_ADMINS = [
 ];
 export const AUTHORIZED_USERS = ['alex', 'jordan', 'riley', 'morgan', 'casey'];
 
+/** New employee whose account still has to be created (not in AUTHORIZED_USERS: they do not exist at the start). */
+export const NEW_HIRE = 'taylor';
+
 export function readmeHtml() {
   const admins = AUTHORIZED_ADMINS.map((a) => `<li><code>${a.name}</code>${a.note === 'you' ? ' (you)' : ''}<br>password: <code>${a.password}</code></li>`).join('');
   const users = AUTHORIZED_USERS.map((u) => `<li><code>${u}</code></li>`).join('');
@@ -30,17 +33,20 @@ h1{font-size:26px;margin:.2em 0 .1em}h2{font-size:18px;margin:1.6em 0 .3em;borde
 <p><b>Authorized Users</b> (standard users, no administrator rights):</p>
 <ul>${users}</ul>
 <p>All other accounts on the system are <b>not</b> authorized. Authorized users must keep their accounts; do not delete them. All users must have secure passwords, and nobody may log in as a guest.</p>
+<p><b>New hire:</b> Taylor Kim starts on Monday. Create a standard (non-administrator) account named <code>${NEW_HIRE}</code> for them.</p>
+<p>Jordan reported that someone may have seen their password. Make sure user <code>jordan</code> has to choose a new password the next time they log in.</p>
 
 <h2>Critical Services</h2>
 <ul><li><b>OpenSSH server</b> (<code>ssh</code>) must be running and enabled at boot. Remote administration depends on it, so lock it down rather than turn it off.</li></ul>
 
 <h2>Critical Programs</h2>
-<ul><li><b>Chromium</b> is the company's required web browser and must stay installed and up to date.</li></ul>
+<ul><li><b>Chromium</b> is the company's required web browser and must stay installed and up to date. It must block pop-ups and keep Safe Browsing protection turned on.</li></ul>
 
 <h2>Company Policy</h2>
 <ul>
-<li>Peer-to-peer, hacking, password-cracking and network-sniffing software is prohibited.</li>
-<li>No FTP or Windows file sharing (Samba) is used by this company.</li>
+<li>Peer-to-peer, hacking, password-cracking and network-sniffing software is prohibited, and so are games on company computers.</li>
+<li>No FTP, web server (Apache) or Windows file sharing (Samba) is used by this company.</li>
+<li>Security updates must be installed promptly.</li>
 <li>Personal media files (music, video) are not allowed on company computers.</li>
 <li>Plaintext files that contain user passwords are prohibited.</li>
 <li>The firewall must be enabled, the system must check for updates automatically, and a sensible password and account-lockout policy must be in place.</li>

@@ -6,7 +6,7 @@ import * as sv from '../../core/services.js';
 import { ufwActive } from '../../core/firewall.js';
 import { compareVersions } from '../../core/util.js';
 import * as K from '../../core/checks.js';
-import { readmeHtml, AUTHORIZED_ADMINS, AUTHORIZED_USERS } from './readme.js';
+import { readmeHtml, AUTHORIZED_ADMINS, AUTHORIZED_USERS, NEW_HIRE } from './readme.js';
 
 const STUDENT = AUTHORIZED_ADMINS[0];
 const DANA = AUTHORIZED_ADMINS[1];
@@ -58,6 +58,8 @@ function apply(sys) {
   pk.installPackage(sys, 'samba');
   pk.installPackage(sys, 'hydra');
   pk.installPackage(sys, 'aisleriot');
+  pk.installPackage(sys, 'ophcrack');
+  pk.installPackage(sys, 'nmap');
 
   // ---- configuration mistakes ------------------------------------------------------------
   v.writeFile('/etc/sudoers.d/99-wheel-nopasswd', '# Created by a contractor "to make scripts easier"\n%sudo ALL=(ALL) NOPASSWD: ALL\n', { mode: 0o440, uid: 0, gid: 0 });
@@ -110,7 +112,7 @@ function apply(sys) {
 
 // ---------------------------------------------------------------- scoring definitions
 const fq = (q) => ({
-  id: `fq${q.n}`, category: 'Forensics', points: 8, title: `Forensics Question ${q.n} correct`,
+  id: `fq${q.n}`, category: 'Forensics', points: 6, title: `Forensics Question ${q.n} correct`,
   check: (sys) => K.answerOf(sys, `/home/student/Desktop/Forensics Question ${q.n}.txt`).toLowerCase() === q.answer.toLowerCase(),
 });
 
@@ -123,28 +125,36 @@ export const vulns = [
   { id: 'rm-sysadm', category: 'User Auditing', points: 3, title: 'Removed hidden UID 0 account sysadm', check: (s) => !users.getUser(s, 'sysadm') },
   { id: 'hana-std', category: 'User Auditing', points: 3, title: 'User hana is not an administrator', check: (s) => !!users.getUser(s, 'hana') && !users.isAdmin(s, 'hana') },
   { id: 'sam-admin', category: 'User Auditing', points: 3, title: 'User sam is an administrator', check: (s) => !!users.getUser(s, 'sam') && users.isAdmin(s, 'sam') },
-  { id: 'pw-priya', category: 'User Auditing', points: 3, title: 'Changed insecure password for user priya', check: (s) => !!users.getUser(s, 'priya') && K.passwordIsSecure(s, 'priya') },
-  { id: 'pw-tyrone', category: 'User Auditing', points: 3, title: 'Changed insecure password for user tyrone', check: (s) => !!users.getUser(s, 'tyrone') && K.passwordIsSecure(s, 'tyrone') },
+  { id: 'pw-priya', category: 'User Auditing', points: 2, title: 'Changed insecure password for user priya', check: (s) => !!users.getUser(s, 'priya') && K.passwordIsSecure(s, 'priya') },
+  { id: 'pw-tyrone', category: 'User Auditing', points: 2, title: 'Changed insecure password for user tyrone', check: (s) => !!users.getUser(s, 'tyrone') && K.passwordIsSecure(s, 'tyrone') },
+  { id: 'add-nadia', category: 'User Auditing', points: 3, title: 'Created user account for new hire nadia', check: (s) => K.standardUserExists(s, NEW_HIRE) },
+  { id: 'expire-omar', category: 'User Auditing', points: 2, title: 'User omar must change password at next login', check: (s) => !!users.getUser(s, 'omar') && K.mustChangePassword(s, 'omar') },
   { id: 'autologin-off', category: 'Account Policy', points: 3, title: 'Automatic login is disabled', check: (s) => !K.autologinUser(s) },
-  { id: 'max-days', category: 'Account Policy', points: 3, title: 'A maximum password age is set (90 days or less)', check: (s) => { const n = Number(K.loginDefs(s).PASS_MAX_DAYS); return n >= 1 && n <= 90; } },
-  { id: 'min-len', category: 'Account Policy', points: 3, title: 'A minimum password length of 10 or more is required', check: (s) => K.effectiveMinLen(s) >= 10 },
-  { id: 'lockout', category: 'Account Policy', points: 3, title: 'An account lockout policy is configured', check: (s) => { const d = K.lockoutDeny(s); return d != null && d >= 1 && d <= 10; } },
-  { id: 'nullok', category: 'Account Policy', points: 3, title: 'Empty passwords no longer authenticate', check: (s) => !K.nullokPresent(s) },
+  { id: 'max-days', category: 'Account Policy', points: 2, title: 'A maximum password age is set (90 days or less)', check: (s) => { const n = Number(K.loginDefs(s).PASS_MAX_DAYS); return n >= 1 && n <= 90; } },
+  { id: 'min-len', category: 'Account Policy', points: 2, title: 'A minimum password length of 10 or more is required', check: (s) => K.effectiveMinLen(s) >= 10 },
+  { id: 'lockout', category: 'Account Policy', points: 2, title: 'An account lockout policy is configured', check: (s) => { const d = K.lockoutDeny(s); return d != null && d >= 1 && d <= 10; } },
+  { id: 'nullok', category: 'Account Policy', points: 2, title: 'Empty passwords no longer authenticate', check: (s) => !K.nullokPresent(s) },
   { id: 'sudo-auth', category: 'Account Policy', points: 3, title: 'sudo requires a password', check: (s) => !K.sudoNeedsNoPassword(s) },
-  { id: 'ufw', category: 'Defensive Countermeasures', points: 4, title: 'Firewall protection has been enabled', check: (s) => ufwActive(s) },
-  { id: 'auto-upd', category: 'Defensive Countermeasures', points: 3, title: 'Automatic checking for updates is enabled', check: (s) => K.aptPeriodic(s, 'Update-Package-Lists') >= 1 },
-  { id: 'upd-firefox', category: 'Defensive Countermeasures', points: 3, title: 'Firefox has been updated', check: (s) => pk.isInstalled(s, 'firefox') && compareVersions(pk.installedVersion(s, 'firefox'), pk.def('firefox').avail) >= 0 },
-  { id: 'ssh-root', category: 'Application Security', points: 4, title: 'SSH root login has been disabled', check: (s) => ['no', 'prohibit-password', 'without-password', 'forced-commands-only'].includes(K.sshdValue(s, 'PermitRootLogin')) && pk.isInstalled(s, 'openssh-server') },
-  { id: 'ssh-empty', category: 'Application Security', points: 3, title: 'SSH does not permit empty passwords', check: (s) => K.sshdValue(s, 'PermitEmptyPasswords') === 'no' && pk.isInstalled(s, 'openssh-server') },
+  { id: 'ufw', category: 'Defensive Countermeasures', points: 3, title: 'Firewall protection has been enabled', check: (s) => ufwActive(s) },
+  { id: 'auto-upd', category: 'Defensive Countermeasures', points: 2, title: 'Automatic checking for updates is enabled', check: (s) => K.aptPeriodic(s, 'Update-Package-Lists') >= 1 },
+  { id: 'upd-firefox', category: 'Defensive Countermeasures', points: 2, title: 'Firefox has been updated', check: (s) => pk.isInstalled(s, 'firefox') && compareVersions(pk.installedVersion(s, 'firefox'), pk.def('firefox').avail) >= 0 },
+  { id: 'sec-updates', category: 'Defensive Countermeasures', points: 3, title: 'Security updates for OpenSSL have been installed', check: (s) => K.upToDate(s, ['openssl', 'libssl3']) },
+  { id: 'ssh-root', category: 'Application Security', points: 3, title: 'SSH root login has been disabled', check: (s) => ['no', 'prohibit-password', 'without-password', 'forced-commands-only'].includes(K.sshdValue(s, 'PermitRootLogin')) && pk.isInstalled(s, 'openssh-server') },
+  { id: 'ssh-empty', category: 'Application Security', points: 2, title: 'SSH does not permit empty passwords', check: (s) => K.sshdValue(s, 'PermitEmptyPasswords') === 'no' && pk.isInstalled(s, 'openssh-server') },
   { id: 'syncookies', category: 'Application Security', points: 2, title: 'IPv4 TCP SYN cookies have been enabled', check: (s) => K.sysctlConfValue(s, 'net.ipv4.tcp_syncookies') === '1' },
+  { id: 'ff-popups', category: 'Application Security', points: 2, title: 'Firefox blocks pop-up windows', check: (s) => pk.isInstalled(s, 'firefox') && K.firefoxPopupsBlocked(s) },
+  { id: 'ff-safebrowsing', category: 'Application Security', points: 2, title: 'Firefox blocks dangerous and deceptive content', check: (s) => pk.isInstalled(s, 'firefox') && K.firefoxSafeBrowsing(s) },
+  { id: 'ff-downloads', category: 'Application Security', points: 2, title: 'Firefox blocks dangerous downloads', check: (s) => pk.isInstalled(s, 'firefox') && K.firefoxDownloadsProtected(s) },
   { id: 'apache-off', category: 'Service Auditing', points: 3, title: 'Apache2 service has been disabled or removed', check: (s) => K.serviceOff(s, 'apache2', 'apache2') },
   { id: 'smb-off', category: 'Service Auditing', points: 3, title: 'Samba service has been disabled or removed', check: (s) => K.serviceOff(s, 'smbd', 'samba') && K.serviceOff(s, 'nmbd', 'samba') },
   { id: 'rm-hydra', category: 'Prohibited Software', points: 2, title: 'Prohibited software THC Hydra removed', check: (s) => !pk.isInstalled(s, 'hydra') },
   { id: 'rm-aisleriot', category: 'Prohibited Software', points: 2, title: 'Prohibited software AisleRiot Solitaire removed', check: (s) => !pk.isInstalled(s, 'aisleriot') },
+  { id: 'rm-ophcrack', category: 'Prohibited Software', points: 2, title: 'Prohibited software Ophcrack removed', check: (s) => !pk.isInstalled(s, 'ophcrack') },
+  { id: 'rm-nmap', category: 'Prohibited Software', points: 2, title: 'Prohibited software Nmap removed', check: (s) => !pk.isInstalled(s, 'nmap') },
   { id: 'rm-media', category: 'Prohibited Files', points: 2, title: 'Removed prohibited media files', check: (s) => !s.vfs.exists('/home/priya/Music/summer_mix.mp3') && !s.vfs.exists('/home/lena/Videos/movie_night.mp4') },
-  gone('rm-passwords', '/home/tyrone/Documents/passwords.txt', 'Removed plaintext password file', 3),
-  { id: 'shadow-perms', category: 'Malware', points: 4, title: 'Insecure permissions on /etc/shadow fixed', check: (s) => { const m = K.fileMode(s, '/etc/shadow'); return m != null && (m & ~0o640) === 0; } },
-  gone('rm-cron-bd', '/etc/cron.d/popularity-sync', 'Removed backdoor cron job', 3, 'Malware'),
+  gone('rm-passwords', '/home/tyrone/Documents/passwords.txt', 'Removed plaintext password file', 2),
+  { id: 'shadow-perms', category: 'Malware', points: 3, title: 'Insecure permissions on /etc/shadow fixed', check: (s) => { const m = K.fileMode(s, '/etc/shadow'); return m != null && (m & ~0o640) === 0; } },
+  gone('rm-cron-bd', '/etc/cron.d/popularity-sync', 'Removed backdoor cron job', 2, 'Malware'),
   { id: 'bd-listener', category: 'Malware', points: 2, title: 'Stopped backdoor listening on port 31337', check: (s) => !K.portListening(s, 31337) },
   { id: 'rm-autostart', category: 'Malware', points: 2, title: 'Removed malicious startup entry', check: (s) => !s.vfs.exists('/home/student/.config/autostart/gnome-update-helper.desktop') },
 ];

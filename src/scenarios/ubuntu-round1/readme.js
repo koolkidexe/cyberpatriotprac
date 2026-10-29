@@ -5,6 +5,9 @@ export const AUTHORIZED_ADMINS = [
 ];
 export const AUTHORIZED_USERS = ['lena', 'omar', 'priya', 'tyrone', 'hana'];
 
+/** New employee whose account still has to be created (not in AUTHORIZED_USERS: they do not exist at the start). */
+export const NEW_HIRE = 'nadia';
+
 export function readmeHtml() {
   const admins = AUTHORIZED_ADMINS.map((a) => `<li><code>${a.name}</code>${a.note === 'you' ? ' (you)' : ''}<br>password: <code>${a.password}</code></li>`).join('');
   const users = AUTHORIZED_USERS.map((u) => `<li><code>${u}</code></li>`).join('');
@@ -30,17 +33,20 @@ h1{font-size:26px;margin:.2em 0 .1em}h2{font-size:18px;margin:1.6em 0 .3em;borde
 <p><b>Authorized Users</b> (standard users, no administrator rights):</p>
 <ul>${users}</ul>
 <p>All other accounts on the system are <b>not</b> authorized. Authorized users must keep their accounts; do not delete them. All users must have secure passwords, and automatic login must not be enabled.</p>
+<p><b>New hire:</b> Nadia Brennan joins the front desk this week. Create a standard (non-administrator) account named <code>${NEW_HIRE}</code> for her.</p>
+<p>Omar's password was written on a sticky note at the desk. Make sure user <code>omar</code> has to choose a new password the next time he logs in.</p>
 
 <h2>Critical Services</h2>
 <ul><li><b>OpenSSH server</b> (<code>ssh</code>) must be running and enabled at boot. Remote administration depends on it, so lock it down rather than turn it off.</li></ul>
 
 <h2>Critical Programs</h2>
-<ul><li><b>Mozilla Firefox</b> is the library's required web browser and must stay installed and up to date.</li></ul>
+<ul><li><b>Mozilla Firefox</b> is the library's required web browser and must stay installed and up to date. It must block pop-up windows and dangerous or deceptive content and downloads.</li></ul>
 
 <h2>Company Policy</h2>
 <ul>
-<li>Peer-to-peer, hacking and password-cracking software is prohibited, and so are games on staff computers.</li>
+<li>Peer-to-peer, hacking, network-scanning and password-cracking software is prohibited, and so are games on staff computers.</li>
 <li>No web server (Apache) and no Windows file sharing (Samba) is used at this library.</li>
+<li>Security updates must be installed promptly.</li>
 <li>Personal media files (music, video) are not allowed on company computers.</li>
 <li>Plaintext files that contain user passwords are prohibited.</li>
 <li>The firewall must be enabled, the system must check for updates automatically, and a sensible password and account-lockout policy must be in place.</li>

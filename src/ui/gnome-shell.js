@@ -36,14 +36,15 @@ export class UbuntuDesktop extends Desktop {
   // ---------------------------------------------------------------- top bar + dock
   build() {
     const env = this.env;
-    this.menuBtn = h('div', { id: 'menu-btn', onclick: () => this.toggleMenu() }, 'Activities');
+    this.menuBtn = h('div', { id: 'menu-btn', title: 'Activities overview: windows, search and workspaces (Super key)', onclick: () => this.toggleMenu('overview') }, 'Activities');
     this.appNameEl = h('div', { id: 'appname' });
     this.clockEl = h('div', { id: 'clock', onclick: (e) => this.clockPopup(e) });
     this.trayEl = h('div', { id: 'tray' });
     const ti = (ic, title, fn) => h('div', { class: 'ti', title, onclick: (e) => fn(e) }, icon(ic, 16));
     this.scoreTi = ti('score', 'Simulator menu', (e) => this.simPopup(e));
     this.sysTi = h('div', { class: 'ti sys', title: 'System menu', onclick: () => this.sysPopup() }, icon('net', 16), icon('volume', 16), icon('power', 16));
-    this.trayEl.append(this.scoreTi, this.sysTi);
+    this.osTi = ti('swap', 'Switch operating system: Ubuntu ⇄ Linux Mint', (e) => this.osPopup(e));
+    this.trayEl.append(this.scoreTi, this.osTi, this.sysTi);
     this.panel.append(this.menuBtn, this.appNameEl, this.clockEl, this.trayEl);
     this.dockEl = h('div', { id: 'dock' });
     this.screen.append(this.dockEl);
@@ -100,7 +101,7 @@ export class UbuntuDesktop extends Desktop {
       try { const u = env.user; const cred = users.credFor(env.sys, u); env.openApp('nemo', { path: ensureTrash(env.sys, cred, u) }); } catch (e) { console.error(e); }
     };
     this.dockEl.append(h('div', { class: 'dsp' }), h('div', { class: 'di trash', title: 'Trash', onclick: openTrash }, icon('trash', 40)),
-      h('div', { class: 'di showapps', title: 'Show Applications', onclick: () => this.toggleMenu() }, icon('app', 36)));
+      h('div', { class: 'di showapps', title: 'Show Applications', onclick: () => this.toggleMenu('apps') }, icon('appgrid', 36)));
   }
 
   // ---------------------------------------------------------------- popups (drop from the top bar)
@@ -127,27 +128,60 @@ export class UbuntuDesktop extends Desktop {
     ], 8);
   }
 
-  // ---------------------------------------------------------------- Activities: application grid
+  // ---------------------------------------------------------------- Activities overview (GNOME 42)
+  // 'overview': search entry, window previews of the workspace and a workspace strip.
+  // 'apps': paged application grid with page dots. Typing switches either one to search results.
+  toggleMenu(mode = 'overview') {
+    if (this.menuEl.classList.contains('open') && this.mode === mode) this.closeMenu(); else { this.mode = mode; this.openMenu(); }
+  }
   closeMenu() { this.menuEl.classList.remove('open'); this.menuBtn.classList.remove('open'); }
   buildMenu() {
     this.menuBuilt = true;
     clear(this.menuEl);
-    this.search = h('input', { placeholder: 'Type to search…', oninput: () => this.renderApps(), onkeydown: (e) => {
+    this.page = 0;
+    this.search = h('input', { placeholder: 'Type to search', title: 'Search applications and settings', oninput: () => this.renderApps(), onkeydown: (e) => {
       if (e.key === 'Enter') this.appsEl.querySelector('.app')?.click();
-      if (e.key === 'Escape') this.closeMenu();
+      if (e.key === 'Escape') { if (this.search.value) { this.search.value = ''; this.renderApps(); } else this.closeMenu(); }
     } });
-    this.appsEl = h('div', { class: 'grid' });
-    this.menuEl.append(h('div', { class: 'search' }, this.search), this.appsEl);
+    this.appsEl = h('div', { class: 'ov-main' });
+    this.dotsEl = h('div', { class: 'ov-dots' });
+    this.wsEl = h('div', { class: 'ov-ws' });
+    this.menuEl.append(h('div', { class: 'search' }, this.search), this.wsEl, this.appsEl, this.dotsEl);
+    this.menuEl.onwheel = (e) => { if (this.mode === 'apps' && !this.search.value) { this.page = Math.max(0, Math.min(this.pages - 1, this.page + Math.sign(e.deltaY))); this.renderApps(); } };
+    this.menuEl.onmousedown = (e) => { if (e.target === this.menuEl || e.target === this.appsEl) this.closeMenu(); };
   }
   renderCats() { /* no categories in the GNOME overview */ }
+  appTile(a, size = 64) {
+    return h('div', { class: 'app', title: a.comment || a.name, onclick: () => { this.closeMenu(); runExec(this.env, a.exec); }, oncontextmenu: (e) => { e.preventDefault(); this.env.ui.showMenu(e.clientX, e.clientY, [{ label: 'Add to Desktop', action: () => this.addToDesktop(a) }]); } },
+      icon(a.icon, size), h('div', { class: 'nm' }, a.name));
+  }
   renderApps() {
-    clear(this.appsEl);
+    clear(this.appsEl); clear(this.dotsEl); clear(this.wsEl);
     const q = this.search.value.trim().toLowerCase();
-    const apps = this.loadApps().filter((a) => !q || a.name.toLowerCase().includes(q) || a.comment.toLowerCase().includes(q));
-    if (!apps.length) { this.appsEl.append(h('div', { class: 'empty' }, 'No results')); return; }
-    for (const a of apps) {
-      this.appsEl.append(h('div', { class: 'app', onclick: () => { this.closeMenu(); runExec(this.env, a.exec); }, oncontextmenu: (e) => { e.preventDefault(); this.env.ui.showMenu(e.clientX, e.clientY, [{ label: 'Add to Desktop', action: () => this.addToDesktop(a) }]); } },
-        icon(a.icon, 56), h('div', { class: 'nm' }, a.name)));
+    const all = this.loadApps();
+    this.menuEl.dataset.mode = q ? 'search' : this.mode;
+    if (q) {
+      const apps = all.filter((a) => a.name.toLowerCase().includes(q) || a.comment.toLowerCase().includes(q) || a.exec.toLowerCase().includes(q));
+      const panels = ['Wi-Fi', 'Network', 'Bluetooth', 'Appearance', 'Notifications', 'Search', 'Multitasking', 'Applications', 'Privacy', 'Online Accounts', 'Sharing', 'Sound', 'Power', 'Displays', 'Mouse & Touchpad', 'Keyboard', 'Printers', 'Removable Media', 'Color', 'Region & Language', 'Accessibility', 'Users', 'Default Applications', 'Date & Time', 'About'].filter((p) => p.toLowerCase().includes(q));
+      if (!apps.length && !panels.length) { this.appsEl.append(h('div', { class: 'empty' }, 'No results.')); return; }
+      if (apps.length) this.appsEl.append(h('div', { class: 'ov-row' }, apps.slice(0, 8).map((a) => this.appTile(a, 64))));
+      if (panels.length) this.appsEl.append(h('div', { class: 'ov-res' }, h('div', { class: 'ov-res-h' }, icon('gear', 28), 'Settings'), panels.slice(0, 5).map((p) => h('div', { class: 'ov-res-i', title: `Open Settings → ${p}`, onclick: () => { this.closeMenu(); this.env.openApp(p === 'Users' ? 'users' : 'settings'); } }, p))));
+      return;
     }
+    if (this.mode === 'apps') {
+      const per = 24;
+      this.pages = Math.max(1, Math.ceil(all.length / per));
+      this.page = Math.min(this.page, this.pages - 1);
+      this.appsEl.append(h('div', { class: 'grid' }, all.slice(this.page * per, this.page * per + per).map((a) => this.appTile(a, 64))));
+      for (let i = 0; i < this.pages; i++) this.dotsEl.append(h('span', { class: 'dot' + (i === this.page ? ' on' : ''), title: `Page ${i + 1}`, onclick: () => { this.page = i; this.renderApps(); } }));
+      return;
+    }
+    // window overview: one preview card per open window on this workspace
+    const wins = this.env.wm.wins.filter((w) => !w.closed);
+    const ws = h('div', { class: 'ov-windows' }, wins.length ? wins.map((w) => h('div', { class: 'ov-win', title: w.title, onclick: () => { this.closeMenu(); w.restore ? w.restore() : w.focus(); w.focus(); } },
+      h('div', { class: 'ov-thumb' }, h('div', { class: 'ov-tbar' }), icon(w.iconName || 'app', 64)), h('div', { class: 'ov-cap' }, icon(w.iconName || 'app', 18), h('span', null, w.title)),
+      h('button', { class: 'ov-close', title: 'Close window', onclick: (e) => { e.stopPropagation(); w.close(); this.renderApps(); } }, '✕'))) : h('div', { class: 'empty' }, 'No open windows'));
+    this.appsEl.append(ws);
+    this.wsEl.append(h('div', { class: 'ov-wsthumb on', title: 'Workspace 1' }, wins.slice(0, 6).map(() => h('i'))), h('div', { class: 'ov-wsthumb', title: 'Workspace 2 (empty)' }));
   }
 }

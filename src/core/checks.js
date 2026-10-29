@@ -5,7 +5,8 @@ import * as pk from './packages.js';
 import * as sv from './services.js';
 import { ufwActive } from './firewall.js';
 import { sysctlConfEffective } from './sysctl.js';
-import { hashPassword } from './util.js';
+import { hashPassword, compareVersions } from './util.js';
+import * as BP from './browserprefs.js';
 
 const rd = (sys, p) => (sys.vfs.isFile(p) ? sys.vfs.readFile(p) : null);
 
@@ -185,3 +186,24 @@ export function answerOf(sys, path) {
 }
 
 export { users, pk, sv, ufwActive };
+
+// ---- added for the past-season task types
+/** All named packages are installed and at the newest available version. */
+export function upToDate(sys, names) {
+  return names.every((n) => pk.isInstalled(sys, n) && compareVersions(pk.installedVersion(sys, n), pk.def(n).avail || pk.installedVersion(sys, n)) >= 0);
+}
+/** The user has to choose a new password at next login (shadow "last change" field is 0, as set by `passwd -e` / `chage -d 0`). */
+export function mustChangePassword(sys, name) {
+  const s = users.getShadow(sys, name);
+  return !!s && s.lastchg === '0';
+}
+/** A newly created standard (non-admin) login account. */
+export function standardUserExists(sys, name) {
+  const u = users.getUser(sys, name);
+  return !!u && u.uid >= 1000 && !/nologin|false$/.test(u.shell || '') && !users.isAdmin(sys, name);
+}
+export const chromiumPopupsBlocked = (sys) => BP.chromiumPopupsBlocked(sys, 'student');
+export const chromiumSafeBrowsing = (sys) => BP.chromiumSafeBrowsingOn(sys, 'student');
+export const firefoxPopupsBlocked = (sys) => BP.firefoxPopupsBlocked(sys, 'student');
+export const firefoxSafeBrowsing = (sys) => BP.firefoxDangerousContentBlocked(sys, 'student');
+export const firefoxDownloadsProtected = (sys) => BP.dangerousDownloadsBlocked(sys, 'student', 'firefox');

@@ -22,14 +22,14 @@ export function open(env) {
   function draw() {
     if (win.closed) return;
     clear(tabs);
-    for (const [id, n] of [['proc', 'Processes'], ['res', 'Resources'], ['fs', 'File Systems']]) tabs.append(h('div', { class: 'tab' + (tab === id ? ' on' : ''), onclick: () => { tab = id; draw(); } }, n));
+    for (const [id, n] of [['proc', 'Processes'], ['res', 'Resources'], ['fs', 'File Systems']]) tabs.append(h('div', { class: 'tab' + (tab === id ? ' on' : ''), title: `Show ${n}`, onclick: () => { tab = id; draw(); } }, n));
     clear(body);
     if (tab === 'proc') {
       const tb = h('tbody');
       for (const p of [...sys.processes].sort((a, b) => a.pid - b.pid)) tb.append(h('tr', { class: sel === p.pid ? 'sel' : '', onclick: () => { sel = p.pid; draw(); } }, h('td', null, p.comm), h('td', null, p.user), h('td', null, String(p.cpu)), h('td', null, String(p.pid)), h('td', null, p.cmd.slice(0, 80))));
       const target = sys.findProc(sel);
       body.append(h('div', { class: 'scroll', style: { flex: 1, background: 'var(--surface)' } }, h('table', { class: 'grid' }, h('thead', null, h('tr', null, ['Process Name', 'User', '% CPU', 'ID', 'Command Line'].map((x) => h('th', null, x)))), tb)),
-        h('div', { class: 'toolbar' }, h('span', { class: 'sp' }), h('button', { class: 'btn', disabled: !target, onclick: () => kill(target, 15) }, 'End Process'), h('button', { class: 'btn danger', disabled: !target, onclick: () => kill(target, 9) }, 'Kill Process')));
+        h('div', { class: 'toolbar' }, h('span', { class: 'sp' }), h('button', { class: 'btn', title: 'Ask the selected process to stop (SIGTERM)', disabled: !target, onclick: () => kill(target, 15) }, 'End Process'), h('button', { class: 'btn danger', title: 'Force the selected process to stop (SIGKILL)', disabled: !target, onclick: () => kill(target, 9) }, 'Kill Process')));
     } else if (tab === 'res') {
       const m = memInfo(sys); const la = loadavg(sys);
       body.append(h('div', { class: 'pad' }, h('div', { class: 'kv' }, h('div', { class: 'k' }, 'Load average'), h('div', null, la.map((x) => x.toFixed(2)).join(', ')), h('div', { class: 'k' }, 'Memory'), h('div', null, `${(m.used / 1048576).toFixed(1)} GiB of ${(m.total / 1048576).toFixed(1)} GiB`), h('div', { class: 'k' }, 'Processes'), h('div', null, String(sys.processes.length)))));

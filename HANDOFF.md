@@ -143,3 +143,19 @@ Engine, shell, Mint 21 image, scenario, desktop UI and all GUI apps are built an
 - Ubuntu theme: `env.theme()` / `env.setTheme({style, accent, dock})` (stored in `env.settings.ubuntuTheme`, applied by `UbuntuDesktop.applyTheme`, CSS in `css/ubuntu.css`: `body.ub-dark`, `body.dock-left|bottom|right`). Window widgets use `--surface`, `--surface-2`, `--line`, `--text-dim` variables so dark mode works; do not hard-code light colours in app JS.
 - Folder/home icons use `--folder` (accent on Ubuntu).
 - Not done: tasks list from previous years (user has not re-sent it), Windows image, GNOME lock screen, Playwright e2e tests in `tests/`.
+
+## Latest status (Oct 29)
+The Oct 27-28 round is done. Note: the zip the user uploaded on Oct 29 predated the browser work described in an earlier plan, so the browser was rebuilt from that zip. The project is now a git repo (commit history from Oct 29).
+- Icons: `icons.js` renders the themed set from `icons-apps.js` first (`setIconTheme('mint'|'yaru')`, set in `main.js`), falling back to the old `G` set. `ALIAS` maps .desktop Icon= names.
+- Browser: `src/apps/browser.js` (frame, tabs, pop-ups, interstitials, downloads), `browser-pages.js` (chrome://settings, about:preferences, about:config, policy/downloads pages), `browser-sites.js` (DOM-free fake web). Decision rules live in `core/browserprefs.js` (`popupsAllowed`, `safeBrowsingBlocks`, `dangerousDownloadsBlocked`) and are tested in `tests/browser.test.mjs`. Profiles are seeded by `seedBrowserProfiles` from `buildImage`. Chromium theme preference: `env.settings.chromiumMode` (Device/Light/Dark, default Dark).
+- WM: `wm.open({ frameless: true, cls })` + `win.controls()` / `win.makeDraggable(el)` for app-drawn title bars (browser, gedit, Ubuntu Software).
+- Scenarios rebalanced (both still exactly 100, 39 items): forensics 6 pts; new checks in `core/checks.js` (`upToDate`, `mustChangePassword`, `standardUserExists`, browser checks). Security-pocket updates: `packages.SECURITY_UPDATES`.
+- Lock/login screens moved to `src/ui/greeters.js` (Mint: Cinnamon screensaver + Slick Greeter; Ubuntu: GNOME lock + GDM).
+- Ubuntu Activities: `gnome-shell.js` `toggleMenu('overview'|'apps')`.
+- Tooltips: fallback `autoTip` in `tooltip.js`. Audit script idea: open every app, dispatch mouseover on every control, list ones without `title`/`data-tip` (0 on both images as of Oct 29).
+- 29 tests pass.
+
+## Next (agreed order)
+1. Windows image — scope with the user first (local security policy, users, services, firewall, Windows 10 look; roughly as big as everything so far).
+2. More past-year tasks if the user sends the written list.
+3. Remaining polish listed in README "What's left".

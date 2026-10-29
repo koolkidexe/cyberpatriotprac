@@ -31,11 +31,13 @@ export function installedNames(sys) {
 }
 
 /** Packages with a newer version in the repository than the installed one. */
+/** Packages whose pending update comes from the -security pocket (shown with a shield in Update Manager). */
+export const SECURITY_UPDATES = new Set(['openssl', 'libssl3', 'openssh-client', 'openssh-server', 'openssh-sftp-server', 'sudo']);
 export function upgradable(sys) {
   const out = [];
   for (const name of installedNames(sys)) {
     const d = PACKAGES[name];
-    if (d?.avail && compareVersions(installedVersion(sys, name), d.avail) < 0) out.push({ name, from: installedVersion(sys, name), to: d.avail, size: d.size });
+    if (d?.avail && compareVersions(installedVersion(sys, name), d.avail) < 0) out.push({ name, from: installedVersion(sys, name), to: d.avail, size: d.size, security: SECURITY_UPDATES.has(name), desc: d.d || d.desc || '' });
   }
   return out;
 }

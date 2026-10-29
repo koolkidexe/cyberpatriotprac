@@ -31,7 +31,7 @@ export class WindowManager {
     const iconEl = icon(opts.icon || 'app', 16);
     const bar = h('div', { class: 'title' }, iconEl, titleEl, h('div', { class: 'wb' }, btnMin, btnMax, btnX));
     const body = h('div', { class: 'content' });
-    const el = h('div', { class: 'win', style: { left: x + 'px', top: y + 'px', width: width + 'px', height: height + 'px', minWidth: (opts.minW || 260) + 'px', minHeight: (opts.minH || 120) + 'px' } }, bar, body);
+    const el = h('div', { class: 'win' + (opts.cls ? ' ' + opts.cls : '') + (opts.frameless ? ' frameless' : ''), style: { left: x + 'px', top: y + 'px', width: width + 'px', height: height + 'px', minWidth: (opts.minW || 260) + 'px', minHeight: (opts.minH || 120) + 'px' } }, opts.frameless ? null : bar, body);
     if (opts.resizable !== false) for (const d of ['r', 'b', 'br', 'l', 't', 'bl']) el.append(h('div', { class: 'rz ' + d, dataset: { d }, onmousedown: (e) => this.startResize(win, e, d) }));
     const win = {
       id, el, body, appId: opts.appId, title: opts.title || '', iconName: opts.icon || 'app', minimized: false, maximized: false, closed: false, closeHandlers: [], data: {},
@@ -42,6 +42,16 @@ export class WindowManager {
       toggleMax: () => this.toggleMax(win),
       close: () => this.close(win),
       onClose: (fn) => win.closeHandlers.push(fn),
+      /** For frameless windows: let an app-drawn element act as the title bar (drag, double-click to maximize). */
+      makeDraggable: (node) => {
+        node.addEventListener('mousedown', (e) => { if (!e.target.closest('button, input, .no-drag')) this.startDrag(win, e); });
+        node.addEventListener('dblclick', (e) => { if (!e.target.closest('button, input, .no-drag') && !opts.noMax) win.toggleMax(); });
+      },
+      /** A fresh set of minimize / maximize / close buttons for an app-drawn title bar. */
+      controls: () => h('div', { class: 'wb' },
+        h('button', { title: 'Minimize', onclick: (e) => { e.stopPropagation(); win.minimize(); } }, '–'),
+        opts.noMax ? null : h('button', { title: 'Maximize', onclick: (e) => { e.stopPropagation(); win.toggleMax(); } }, '□'),
+        h('button', { class: 'x', title: 'Close', onclick: (e) => { e.stopPropagation(); win.close(); } }, '✕')),
     };
     if (opts.onClose) win.closeHandlers.push(opts.onClose);
     bar.addEventListener('mousedown', (e) => this.startDrag(win, e));

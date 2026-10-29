@@ -154,3 +154,31 @@ body.os-ubuntu.ub-dark {
 .ub-dark .xed-ta { background: #1e1e1e; color: #eee; }
 .ub-dark .sw { background: #5b5b5b; }
 .ub-dark .win.modal-parent { filter: brightness(.8); }
+
+/* ---- Activities overview (GNOME 42) */
+.os-ubuntu #menu { justify-content: flex-start; padding-top: 22px; }
+.os-ubuntu #menu .search input::placeholder { color: #c9b8cc; }
+.ov-ws { display: flex; gap: 10px; margin-bottom: 16px; }
+#menu[data-mode="apps"] .ov-ws, #menu[data-mode="search"] .ov-ws { display: none; }
+.ov-wsthumb { width: 132px; height: 82px; border-radius: 8px; background: url(../assets/wallpaper-ubuntu.svg) center / cover; opacity: .6; border: 2px solid transparent; display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; align-content: flex-start; }
+.ov-wsthumb.on { opacity: 1; border-color: #fff; }
+.ov-wsthumb i { width: 34px; height: 22px; background: rgba(255,255,255,.75); border-radius: 3px; }
+.ov-main { flex: 1; width: 100%; display: flex; flex-direction: column; align-items: center; min-height: 0; overflow: auto; }
+.ov-windows { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; align-content: center; flex: 1; padding: 10px 40px; max-width: 1100px; }
+.ov-win { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: default; }
+.ov-thumb { width: 260px; height: 170px; border-radius: 10px; background: #f6f5f4; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.45); }
+.ub-dark .ov-thumb { background: #2d2d2d; }
+.ov-tbar { position: absolute; left: 0; right: 0; top: 0; height: 22px; background: rgba(0,0,0,.12); }
+.ov-win:hover .ov-thumb { outline: 4px solid rgba(255,255,255,.6); }
+.ov-cap { display: flex; gap: 6px; align-items: center; background: rgba(0,0,0,.55); color: #fff; border-radius: 12px; padding: 3px 10px; font-size: 12px; max-width: 240px; }
+.ov-cap span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-close { position: absolute; right: -10px; top: -10px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: #3a3a3a; color: #fff; display: none; }
+.ov-win:hover .ov-close { display: block; }
+.ov-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.ov-res { margin-top: 18px; width: 640px; background: rgba(255,255,255,.08); border-radius: 12px; padding: 10px; color: #fff; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ov-res-h { display: flex; gap: 10px; align-items: center; width: 130px; font-weight: 700; }
+.ov-res-i { padding: 6px 12px; border-radius: 8px; background: rgba(255,255,255,.1); cursor: default; } .ov-res-i:hover { background: rgba(255,255,255,.2); }
+.ov-dots { display: flex; gap: 10px; padding: 12px; }
+#menu[data-mode="overview"] .ov-dots, #menu[data-mode="search"] .ov-dots { display: none; }
+.ov-dots .dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.35); cursor: default; } .ov-dots .dot.on { background: #fff; }
+.os-ubuntu #menu .grid { grid-template-columns: repeat(6, 128px); overflow: visible; }

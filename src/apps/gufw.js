@@ -23,12 +23,16 @@ export async function open(env) {
     const on = fw.ufwActive(sys);
     const d = fw.getDefaults(sys);
     clear(head);
-    const pol = (dir) => h('select', { class: 'in', onchange: (e) => guard(() => fw.setDefault(sys, dir, e.target.value)) }, ['allow', 'deny', 'reject'].map((p) => h('option', { value: p, selected: p === d[dir] }, p === 'allow' ? 'Allow' : p === 'deny' ? 'Deny' : 'Reject')));
-    head.append(h('div', { class: 'kv', style: { gridTemplateColumns: '110px 1fr 110px 1fr' } },
-      h('div', { class: 'k' }, 'Status'), h('span', { class: 'sw' + (on ? ' on' : ''), onclick: () => guard(() => (on ? fw.ufwDisable(sys) : fw.ufwEnable(sys))) }),
-      h('div', { class: 'k' }, 'Incoming'), pol('incoming'), h('div', { class: 'k' }, ''), h('div'), h('div', { class: 'k' }, 'Outgoing'), pol('outgoing')));
+    const pol = (dir) => h('select', { class: 'in', title: `Default policy for ${dir} traffic`, onchange: (e) => guard(() => fw.setDefault(sys, dir, e.target.value)) }, ['allow', 'deny', 'reject'].map((p) => h('option', { value: p, selected: p === d[dir] }, p === 'allow' ? 'Allow' : p === 'deny' ? 'Deny' : 'Reject')));
+    // gufw 22.04: settings on the left, the shield picture on the right (coloured only while the firewall is on)
+    const shield = `<svg viewBox="0 0 120 130" width="118" height="128"><defs><linearGradient id="gs" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${on ? '#e8513d' : '#bdbdbd'}"/><stop offset=".5" stop-color="${on ? '#f2b33d' : '#d5d5d5'}"/><stop offset="1" stop-color="${on ? '#4a9a3a' : '#a8a8a8'}"/></linearGradient></defs><path d="M60 6l48 16v34c0 33-21 56-48 68C33 112 12 89 12 56V22z" fill="url(#gs)" stroke="${on ? '#5a3a2a' : '#8a8a8a'}" stroke-width="3"/><path d="M60 20l34 11v25c0 25-15 43-34 52-19-9-34-27-34-52V31z" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="3"/>${on ? '<path d="M42 64l13 13 25-27" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>' : ''}</svg>`;
+    head.append(h('div', { class: 'gufw-head' }, h('div', { class: 'kv gufw-kv' },
+      h('div', { class: 'k' }, 'Profile:'), h('select', { class: 'in', title: 'Firewall profile' }, ['Home', 'Office', 'Public'].map((p) => h('option', null, p))),
+      h('div', { class: 'k' }, 'Status:'), h('span', { class: 'sw' + (on ? ' on' : ''), title: on ? 'Turn the firewall off' : 'Turn the firewall on', onclick: () => guard(() => (on ? fw.ufwDisable(sys) : fw.ufwEnable(sys))) }),
+      h('div', { class: 'k' }, 'Incoming:'), pol('incoming'), h('div', { class: 'k' }, 'Outgoing:'), pol('outgoing')),
+      h('div', { class: 'gufw-shield', title: on ? 'The firewall is enabled' : 'The firewall is disabled', html: shield })));
     clear(tabs);
-    for (const [id, n] of [['rules', 'Rules'], ['log', 'Log']]) tabs.append(h('div', { class: 'tab' + (tab === id ? ' on' : ''), onclick: () => { tab = id; draw(); } }, n));
+    for (const [id, n] of [['rules', 'Rules'], ['log', 'Log']]) tabs.append(h('div', { class: 'tab' + (tab === id ? ' on' : ''), title: `Show ${n}`, onclick: () => { tab = id; draw(); } }, n));
     clear(body);
     if (tab === 'rules') drawRules(); else drawLog();
   }
@@ -37,8 +41,8 @@ export async function open(env) {
     const sel = { i: -1 };
     const tb = h('tbody');
     rows.forEach((r, i) => tb.append(h('tr', { onclick: () => { sel.i = i; [...tb.children].forEach((c, j) => c.classList.toggle('sel', j === i)); del.disabled = false; } }, h('td', null, String(i + 1)), h('td', null, r.to), h('td', null, r.action), h('td', null, r.from))));
-    const del = h('button', { class: 'btn', disabled: true, onclick: () => { if (sel.i >= 0) guard(() => fw.deleteRule(sys, sel.i + 1)); } }, '−');
-    body.append(h('div', { class: 'toolbar' }, h('button', { class: 'btn', onclick: addDlg }, '+'), del), h('div', { class: 'scroll', style: { flex: 1, background: 'var(--surface)' } }, h('table', { class: 'grid' }, h('thead', null, h('tr', null, ['#', 'To', 'Action', 'From'].map((x) => h('th', null, x)))), tb)));
+    const del = h('button', { class: 'btn', title: 'Delete the selected rule', disabled: true, onclick: () => { if (sel.i >= 0) guard(() => fw.deleteRule(sys, sel.i + 1)); } }, '−');
+    body.append(h('div', { class: 'toolbar' }, h('button', { class: 'btn', title: 'Add a firewall rule', onclick: addDlg }, '+'), del), h('div', { class: 'scroll', style: { flex: 1, background: 'var(--surface)' } }, h('table', { class: 'grid' }, h('thead', null, h('tr', null, ['#', 'To', 'Action', 'From'].map((x) => h('th', null, x)))), tb)));
   }
   function drawLog() {
     const txt = sys.vfs.exists('/var/log/ufw.log') ? sys.vfs.readFile('/var/log/ufw.log') : '';

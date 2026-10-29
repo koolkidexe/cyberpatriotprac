@@ -12,7 +12,19 @@ export function openTerminal(env, opts = {}) {
   const inl = h('div', { class: 'inl' });
   const term = h('div', { class: 'term', tabindex: 0 }, out, inl);
   const view = new AnsiView(out);
-  const win = env.wm.open({ title: `${user}@${env.sys.hostname}: ~`, icon: 'terminal', width: 760, height: 470, appId: 'terminal', content: term, minW: 360, minH: 200 });
+  // GNOME Terminal 3.44 as shipped on Mint 21 / Ubuntu 22.04: menu bar (Mint) and the dark theme variant
+  const menuItem = (n, items) => h('div', { class: 'mi', title: `${n} menu`, onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom, items()); } }, n);
+  const termMenu = env.os === 'ubuntu' ? null : h('div', { class: 'menubar term-menu' },
+    menuItem('File', () => [{ label: 'New Window', action: () => env.openApp('terminal', { user }) }, 'sep', { label: 'Close Window', action: () => win.close() }]),
+    menuItem('Edit', () => [{ label: 'Copy', action: () => document.execCommand('copy') }, { label: 'Select All', action: () => { const r = document.createRange(); r.selectNodeContents(out); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r); } }]),
+    menuItem('View', () => [{ label: 'Zoom In', action: () => zoom(1) }, { label: 'Normal Size', action: () => zoom(0) }, { label: 'Zoom Out', action: () => zoom(-1) }]),
+    menuItem('Search', () => [{ label: 'Find… (use grep in the shell)', action: () => {} }]),
+    menuItem('Terminal', () => [{ label: 'Reset and Clear', action: () => { out.textContent = ''; } }]),
+    menuItem('Help', () => [{ label: 'About', action: () => env.ui.alert({ title: 'About Terminal', heading: 'GNOME Terminal 3.44.0', message: 'Simulated terminal running bash 5.1.', icon: 'terminal' }) }]));
+  let fsz = 15;
+  function zoom(d) { fsz = d === 0 ? 15 : Math.max(9, Math.min(28, fsz + d * 2)); term.style.fontSize = fsz + 'px'; }
+  const wrap = termMenu ? h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, termMenu, term) : term;
+  const win = env.wm.open({ title: `${user}@${env.sys.hostname}: ~`, icon: 'terminal', width: 760, height: 470, appId: 'terminal', content: wrap, minW: 360, minH: 200, cls: 'term-win' });
   const ttyNo = ++ttyCounter;
   let overlayOpen = false;
   let state = null; // active input request

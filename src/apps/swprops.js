@@ -20,8 +20,8 @@ export async function open(env) {
   const sel = (key) => { const s = h('select', { class: 'in', onchange: () => { setKey(key, s.value); } }, [['1', 'Daily'], ['2', 'Every two days'], ['7', 'Weekly'], ['0', 'Never']].map(([v, l]) => h('option', { value: v, selected: v === freq(key) || (v === '1' && freq(key) === '1') }, l))); return s; };
   body.append(h('div', { class: 'kv', style: { gridTemplateColumns: '260px 1fr' } },
     h('div', { class: 'k' }, 'Automatically check for updates:'), sel('Update-Package-Lists'),
-    h('div', { class: 'k' }, 'When there are security updates:'), h('div', null, 'Download and install automatically'),
-    h('div', { class: 'k' }, 'When there are other updates:'), h('div', null, 'Display immediately'),
-    h('div', { class: 'k' }, 'Notify me of a new Ubuntu version:'), h('div', null, 'For long-term support versions')));
+    h('div', { class: 'k' }, 'When there are security updates:'), h('select', { class: 'in', title: 'Unattended-Upgrade (security updates only)', onchange: (e) => setKey('Unattended-Upgrade', e.target.value === 'install' ? '1' : '0') }, [['display', 'Display immediately'], ['download', 'Download automatically'], ['install', 'Download and install automatically']].map(([v, l]) => h('option', { value: v, selected: v === (aptPeriodic(sys, 'Unattended-Upgrade') >= 1 ? 'install' : 'display') }, l))),
+    h('div', { class: 'k' }, 'When there are other updates:'), h('select', { class: 'in', title: 'How Software Updater shows other updates' }, ['Display immediately', 'Display weekly', 'Display every two weeks'].map((l) => h('option', null, l))),
+    h('div', { class: 'k' }, 'Notify me of a new Ubuntu version:'), h('select', { class: 'in', title: 'Release upgrade prompts' }, ['For long-term support versions', 'For any new version', 'Never'].map((l) => h('option', null, l)))));
   return win;
 }
