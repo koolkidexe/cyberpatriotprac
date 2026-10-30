@@ -145,7 +145,7 @@ export function open(env, opts = {}) {
     const m = /^file:\/\/(\/.*)$/.exec(u);
     if (m) {
       const p = decodeURIComponent(m[1]);
-      if (p === '/opt/CyberPatriot/ScoringReport.html') { t.live = true; return { title: 'CCS Scoring Report', html: reportHtml(env.engine.report(), { mode: env.settings.mode }) }; }
+      if (p === '/opt/CyberPatriot/ScoringReport.html') { t.live = true; return { title: 'CCS Scoring Report', html: reportHtml(env.engine.report(), { mode: env.settings.mode, title: `CyberPatriot ${env.scenario.title}`, imageName: env.os === 'ubuntu' ? 'Ubuntu 22' : 'Mint 21' }) }; }
       try {
         if (fs.isDir(p)) { const names = fs.readdir(p).sort(); return { title: `Index of ${p}`, html: errDoc(`Index of ${p}`, `{T}<ul>${p !== '/' ? `<li><a href="file://${esc(p.replace(/\/[^/]+\/?$/, '') || '/')}">[parent directory]</a></li>` : ''}${names.map((n) => `<li><a href="file://${esc((p.endsWith('/') ? p : p + '/') + n)}">${esc(n)}</a></li>`).join('')}</ul>`, isDark()) }; }
         const data = fs.readFile(p);

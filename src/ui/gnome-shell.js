@@ -24,11 +24,11 @@ const pad2 = (n) => String(n).padStart(2, '0');
 // dock favourites: [icon, title, app id | exec]
 const FAVS = [
   ['firefox', 'Firefox Web Browser', { app: 'firefox' }],
-  ['mail', 'Thunderbird Mail', { exec: 'thunderbird' }],
+  ['thunderbird', 'Thunderbird Mail', { exec: 'thunderbird' }],
   ['folder', 'Files', { app: 'nemo' }],
-  ['music', 'Rhythmbox', { exec: 'rhythmbox' }],
-  ['file', 'LibreOffice Writer', { exec: 'libreoffice' }],
-  ['bag', 'Ubuntu Software', { app: 'software' }],
+  ['rhythmbox', 'Rhythmbox', { exec: 'rhythmbox' }],
+  ['lo-writer', 'LibreOffice Writer', { exec: 'libreoffice' }],
+  ['ubuntu-software', 'Ubuntu Software', { app: 'software' }],
   ['terminal', 'Terminal', { app: 'terminal' }],
 ];
 
@@ -44,7 +44,8 @@ export class UbuntuDesktop extends Desktop {
     this.scoreTi = ti('score', 'Simulator menu', (e) => this.simPopup(e));
     this.sysTi = h('div', { class: 'ti sys', title: 'System menu', onclick: () => this.sysPopup() }, icon('net', 16), icon('volume', 16), icon('power', 16));
     this.osTi = ti('swap', 'Switch operating system: Ubuntu ⇄ Linux Mint', (e) => this.osPopup(e));
-    this.trayEl.append(this.scoreTi, this.osTi, this.sysTi);
+    this.shuffleTi = ti('reshuffle', 'Reshuffle: deal a new random round of tasks', () => env.reshuffle());
+    this.trayEl.append(this.scoreTi, this.shuffleTi, this.osTi, this.sysTi);
     this.panel.append(this.menuBtn, this.appNameEl, this.clockEl, this.trayEl);
     this.dockEl = h('div', { id: 'dock' });
     this.screen.append(this.dockEl);
@@ -121,7 +122,7 @@ export class UbuntuDesktop extends Desktop {
     const row = (ic, label, fn) => h('div', { class: 'row clk', onclick: () => { this.closePopup(); fn?.(); } }, h('span', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, icon(ic, 16), label));
     this.showPopup(null, [
       h('div', { class: 'row' }, h('span', null, 'Wired Connected'), h('span', { style: { color: '#9fb08a' } }, '10.0.2.15')),
-      h('div', { class: 'row' }, h('span', null, `Volume ${env.ui.soundOn ? 'on' : 'muted'}`), h('button', { class: 'btn', onclick: () => { env.ui.soundOn = !env.ui.soundOn; env.settings.sound = env.ui.soundOn; env.saveSettings(); this.closePopup(); } }, env.ui.soundOn ? 'Mute' : 'Unmute')),
+      h('div', { class: 'row' }, h('span', null, `Volume ${env.ui.soundOn ? 'on' : 'muted'}`), h('button', { class: 'btn', onclick: () => { env.ui.soundOn = !env.ui.soundOn; if (!env.ui.soundOn) env.ui.stopSounds(); env.settings.sound = env.ui.soundOn; env.saveSettings(); this.closePopup(); } }, env.ui.soundOn ? 'Mute' : 'Unmute')),
       h('hr'),
       row('gear', 'Settings', () => env.openApp('settings')), row('lock', 'Lock', () => env.lock()), row('logout', 'Log Out…', () => env.logout()),
       row('power', 'Restart…', () => env.power('reboot')), row('power', 'Power Off…', () => env.power('poweroff')),

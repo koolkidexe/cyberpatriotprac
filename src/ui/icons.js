@@ -68,7 +68,10 @@ let customLogo = null;
 /** Use a user-supplied image (e.g. assets/cyberpatriot-logo.png) for the CyberPatriot icon. */
 export function setCustomLogo(url) { customLogo = url; }
 
+/** User-supplied brand logos (assets/logo-*.png) replace the drawn ones. */
+const LOGOS = { firefox: 'assets/logo-firefox.png', chromium: 'assets/logo-chromium.png', 'mint-logo': 'assets/logo-mint.png', 'chromium-browser': 'assets/logo-chromium.png', 'firefox-esr': 'assets/logo-firefox.png' };
 export function iconSvg(name, size = 32) {
+  if (LOGOS[name]) return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><image href="${LOGOS[name]}" x="3" y="3" width="42" height="42" preserveAspectRatio="xMidYMid meet"/></svg>`;
   if (name === 'cyberpatriot' && customLogo) return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="23.5" fill="#fff"/><image href="${customLogo}" x="0" y="0" width="48" height="48" preserveAspectRatio="xMidYMid meet"/></svg>`;
   const themed = APPS[name] ? name : APPS[ALIAS[name]] && !G[name] ? ALIAS[name] : null;
   if (themed) {

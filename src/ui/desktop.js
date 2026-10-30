@@ -65,21 +65,22 @@ export class Desktop {
   // ---------------------------------------------------------------- panel
   build() {
     const env = this.env;
-    this.menuBtn = h('div', { id: 'menu-btn', title: 'Menu: browse applications, places and system settings', onclick: () => this.toggleMenu() }, h('div', { class: 'logo', html: MINT_LOGO }));
+    this.menuBtn = h('div', { id: 'menu-btn', title: 'Menu: browse applications, places and system settings', onclick: () => this.toggleMenu() }, h('img', { class: 'logo mint-logo-img', src: 'assets/logo-mint.png', alt: 'Menu', draggable: false }));
     const lb = (ic, title, fn) => h('div', { class: 'lb', title, onclick: fn }, icon(ic, 30));
     const launchers = h('div', { id: 'launchers' },
+      lb('chromium', 'Chromium Web Browser\nAccess the Internet', () => env.openApp('chromium')),
       lb('show-desktop', 'Show Desktop\nHide all windows and show the desktop', () => env.wm.showDesktop()),
-      lb('firefox', 'Firefox Web Browser\nBrowse the World Wide Web', () => env.openApp('firefox')),
-      lb('terminal', 'Terminal\nUse the command line', () => env.openApp('terminal')),
-      lb('folder', 'Files\nAccess and organize files', () => env.openApp('nemo')));
+      lb('folder', 'Files\nAccess and organize files', () => env.openApp('nemo')),
+      lb('terminal', 'Terminal\nUse the command line', () => env.openApp('terminal')));
     this.tasksEl = h('div', { id: 'tasks' });
     this.trayEl = h('div', { id: 'tray' });
     const ti = (ic, title, fn, cls = '') => h('div', { class: 'ti ' + cls, title, onclick: (e) => fn(e) }, typeof ic === 'string' && ic.startsWith('<') ? h('span', { class: 'ico', html: ic }) : icon(ic, 20));
     this.scoreTi = ti('score', 'CyberPatriot Simulator menu\nScoring mode, hints, sounds and reset', (e) => this.simPopup(e), 'sim');
     this.osTi = ti('swap', 'Switch operating system\nLinux Mint \u21c4 Ubuntu (each keeps its own progress)', (e) => this.osPopup(e), 'sim');
+    this.shuffleTi = ti('reshuffle', 'Reshuffle\nDeal a new random round of tasks', () => env.reshuffle(), 'sim');
     this.netTi = ti(SYM.net, 'Network: Wired connection 1 (connected)', (e) => this.netPopup(e));
     this.volTi = ti(env.ui.soundOn ? SYM.vol : SYM.mute, `Volume: ${env.ui.soundOn ? '75%' : 'muted'}\nClick to adjust`, (e) => this.volPopup(e));
-    this.trayEl.append(this.scoreTi, this.osTi, this.netTi, this.volTi);
+    this.trayEl.append(this.scoreTi, this.shuffleTi, this.osTi, this.netTi, this.volTi);
     this.clockEl = h('div', { id: 'clock', onclick: (e) => this.clockPopup(e) });
     this.panel.append(this.menuBtn, launchers, this.tasksEl, this.trayEl, this.clockEl, h('div', { id: 'showdesk', title: 'Show desktop', onclick: () => env.wm.showDesktop() }));
     this.tickClock();
@@ -117,7 +118,7 @@ export class Desktop {
     const level = this._vol ?? 75;
     const sl = h('input', { type: 'range', min: 0, max: 100, value: level, title: 'Output volume', style: { width: '180px', accentColor: '#8fa876' }, oninput: () => { this._vol = Number(sl.value); out.textContent = `${sl.value}%`; } });
     const out = h('span', { style: { width: '36px', textAlign: 'right' } }, `${level}%`);
-    const mute = h('button', { class: 'btn', title: 'Toggle the simulator\u2019s score notification sounds', onclick: () => { env.ui.soundOn = !env.ui.soundOn; env.settings.sound = env.ui.soundOn; env.saveSettings(); this.closePopup(); this.refreshVol(); env.ui.toast({ title: env.ui.soundOn ? 'Sound on' : 'Sound off', message: 'Score notification sounds', kind: 'info', ms: 1800 }); } }, env.ui.soundOn ? 'Mute' : 'Unmute');
+    const mute = h('button', { class: 'btn', title: 'Toggle the simulator\u2019s score notification sounds', onclick: () => { env.ui.soundOn = !env.ui.soundOn; if (!env.ui.soundOn) env.ui.stopSounds(); env.settings.sound = env.ui.soundOn; env.saveSettings(); this.closePopup(); this.refreshVol(); env.ui.toast({ title: env.ui.soundOn ? 'Sound on' : 'Sound off', message: 'Score notification sounds', kind: 'info', ms: 1800 }); } }, env.ui.soundOn ? 'Mute' : 'Unmute');
     this.showPopup(null, [h('h4', null, 'Volume'), h('div', { class: 'row' }, sl, out), h('div', { class: 'row' }, h('span', null, 'Output: Built-in Audio'), mute)], 30);
   }
   refreshVol() {
@@ -144,13 +145,14 @@ export class Desktop {
     const row = (label, ctl) => h('div', { class: 'row' }, h('span', null, label), ctl);
     const sel = h('select', { class: 'in', style: { minHeight: '22px', padding: '1px 4px' }, onchange: () => { eng.setMode(sel.value); env.settings.mode = sel.value; env.saveSettings(); } },
       h('option', { value: 'instant', selected: eng.mode === 'instant' }, 'Instant (~1 s)'), h('option', { value: 'realistic', selected: eng.mode === 'realistic' }, 'Realistic (60 s)'));
-    const snd = h('input', { type: 'checkbox', checked: env.ui.soundOn, onchange: () => { env.ui.soundOn = snd.checked; env.settings.sound = snd.checked; env.saveSettings(); } });
+    const snd = h('input', { type: 'checkbox', checked: env.ui.soundOn, onchange: () => { env.ui.soundOn = snd.checked; if (!env.ui.soundOn) env.ui.stopSounds(); env.settings.sound = snd.checked; env.saveSettings(); } });
     this.showPopup(null, [h('h4', null, 'CyberPatriot Simulator'),
       row('Scoring updates', sel), row('Sounds', snd),
       row('Hint', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.hint(); } }, 'Show hint')),
       row('Score report', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.openApp(env.browser || 'chromium', { args: ['file:///opt/CyberPatriot/ScoringReport.html'] }); } }, 'Open')),
       row('Operating system', h('button', { class: 'btn', title: 'Switch between Linux Mint and Ubuntu', onclick: () => { this.closePopup(); this.osPopup(); } }, 'Switch OS…')),
-      row('Start over', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.reset(); } }, 'Reset image…')),
+      row('New round', h('button', { class: 'btn', title: 'Deal a new random round of tasks', onclick: () => { this.closePopup(); env.reshuffle(); } }, '↻ Reshuffle…')),
+      row('Start over', h('button', { class: 'btn', title: 'Restart this same round from a fresh image', onclick: () => { this.closePopup(); env.reset(); } }, 'Reset image…')),
       h('div', { style: { fontSize: '11px', color: '#9aa0a4', marginTop: '6px' } }, 'Practice tool — not the real scoring engine.')], 104);
   }
 
@@ -186,7 +188,7 @@ export class Desktop {
     } });
     const fav = (ic, title, fn) => h('div', { class: 'fb', title, onclick: () => { this.closeMenu(); fn(); } }, icon(ic, 32));
     const favs = h('div', { class: 'fav' },
-      fav('firefox', 'Firefox Web Browser\nBrowse the World Wide Web', () => env.openApp('firefox')),
+      fav('chromium', 'Chromium Web Browser\nAccess the Internet', () => env.openApp('chromium')),
       fav('software', 'Software Manager\nAdd and remove applications', () => env.openApp('software')),
       fav('gear', 'System Settings\nControl Center: change appearance, hardware and system settings', () => env.openApp('settings')),
       fav('terminal', 'Terminal\nUse the command line', () => env.openApp('terminal')),

@@ -45,7 +45,7 @@ const BASE = [
   ['tar', '1.35+dfsg-3build1', 'GNU version of the tar archiving utility', { essential: true }],
   ['mount', '2.39.3-9ubuntu6.1', 'tools for mounting and manipulating filesystems', { essential: true }],
   ['libc6', '2.35-0ubuntu3.8', 'GNU C Library: Shared libraries', { essential: true }],
-  ['systemd', '249.11-0ubuntu3.12', 'system and service manager', { essential: true }],
+  ['systemd', '249.11-0ubuntu3.12', 'system and service manager', { essential: true, avail: '249.11-0ubuntu3.16' }],
   ['systemd-sysv', '249.11-0ubuntu3.12', 'system and service manager - SysV compatibility symlinks', { essential: true }],
   ['dash', '0.5.12-6ubuntu5', 'POSIX-compliant shell', { essential: true }],
   ['diffutils', '1:3.10-1build1', 'File comparison utilities', { essential: true }],
@@ -92,7 +92,7 @@ const BASE = [
   ['gufw', '22.04.3-1', 'graphical user interface for ufw', { bins: ['/usr/bin/gufw'], dep: ['ufw'], gui: { title: 'Firewall Configuration', summary: 'Configure your firewall with ease', cat: 'System Tools' } }],
   ['lightdm', '1.30.0-0ubuntu8', 'simple display manager', { bins: ['/usr/sbin/lightdm'], svc: ['lightdm'], conf: { '/etc/lightdm/lightdm.conf.d/70-linuxmint.conf': C.LIGHTDM_MINT } }],
   ['slick-greeter', '2.0.7', 'Slick-looking LightDM greeter', { conf: { '/etc/lightdm/slick-greeter.conf': C.SLICK_GREETER } }],
-  ['sudo', '1.9.9-1ubuntu2.4', 'Provide limited super user privileges to specific users', { bins: ['/usr/bin/sudo'], conf: { '/etc/sudoers': C.SUDOERS } }],
+  ['sudo', '1.9.9-1ubuntu2.4', 'Provide limited super user privileges to specific users', { avail: '1.9.9-1ubuntu2.5', bins: ['/usr/bin/sudo'], conf: { '/etc/sudoers': C.SUDOERS } }],
   ['openssh-server', '1:8.9p1-3ubuntu0.7', 'secure shell (SSH) server, for secure access from remote machines', { bins: ['/usr/sbin/sshd'], svc: ['ssh'], dep: ['openssh-client', 'openssh-sftp-server'], conf: { '/etc/ssh/sshd_config': C.SSHD_CONFIG }, avail: '1:8.9p1-3ubuntu0.10' }],
   ['xed', '3.4.4', 'Text editor (Xed)', { bins: ['/usr/bin/xed'], gui: { title: 'Text Editor', summary: 'Xed is a small, but powerful text editor', cat: 'Accessories' } }],
   ['nemo', '6.0.2', 'File manager and graphical shell for Cinnamon', { bins: ['/usr/bin/nemo'], gui: { title: 'Files', summary: 'Access and organize files', cat: 'Accessories' } }],
@@ -172,6 +172,9 @@ pkg('john-data', '1.9.0-2build2', 'active password cracking tool - charset files
 pkg('aisleriot', '1:3.22.32-1', 'GNOME solitaire card game collection', { s: 'games', bins: ['/usr/games/sol'], size: 16200, gui: { title: 'AisleRiot Solitaire', summary: 'Play a selection of card games', cat: 'Games' } });
 
 // installable extras: some are tempting (security tools) and some are traps (open ports)
+pkg('zangband', '1:2.7.5pre1-12', 'A single-player, text-based, roguelike game', { s: 'games', bins: ['/usr/games/zangband'], size: 3900 });
+pkg('gnome-mines', '1:40.1-1build1', 'Popular minesweeper puzzle game for GNOME', { s: 'games', bins: ['/usr/games/gnome-mines'], size: 2100, gui: { title: 'Mines', summary: 'Clear hidden mines from a minefield', cat: 'Games' } });
+pkg('deluge', '2.0.3-3.1', 'bittorrent client written in Python/PyGTK', { s: 'net', bins: ['/usr/bin/deluge'], size: 1800, gui: { title: 'Deluge', summary: 'Download and share files over BitTorrent', cat: 'Internet' } });
 pkg('ophcrack', '3.8.0-2', 'Microsoft Windows password cracker using rainbow tables', { s: 'utils', bins: ['/usr/bin/ophcrack'], size: 1150, gui: { title: 'ophcrack', summary: 'Crack Windows passwords with rainbow tables', cat: 'System' } });
 pkg('nmap', '7.94+git20230807.3be01efb1+dfsg-3build2', 'The Network Mapper', { s: 'net', bins: ['/usr/bin/nmap'], size: 4900 });
 pkg('wireshark', '4.2.2-1.1build3', 'network traffic analyzer - meta-package', { s: 'net', bins: ['/usr/bin/wireshark'], size: 20400, gui: { title: 'Wireshark', summary: 'Network protocol analyzer', cat: 'Internet' } });
@@ -274,6 +277,8 @@ SERVICES.lightdm.only = 'mint';
 // Firefox on the Ubuntu image is the Mozilla .deb build (not the snap), so it can be updated with apt.
 PACKAGES.firefox.over = { ubuntu: { v: '131.0+build1-0ubuntu0.22.04.1', avail: '132.0.2+build1-0ubuntu0.22.04.1', d: 'Safe and easy web browser from Mozilla' } };
 PACKAGES.firefox.gui.over = undefined;
+// Linux Mint's CyberPatriot images ship Chromium as the browser; Firefox is available from the repository but not installed.
+PACKAGES.firefox.over.mint = { installed: false };
 
 const ALL_PACKAGES = { ...PACKAGES };
 const ALL_SERVICES = { ...SERVICES };

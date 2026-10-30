@@ -97,8 +97,29 @@ export class UI {
     setTimeout(rm, ms);
     return el;
   }
+  /** Score sounds: assets/sound-gain.wav when points are gained, assets/sound-lose.wav (alarm) when points are lost.
+   *  Falls back to a short synthesized beep if the file cannot be played. */
   ding(kind = 'good') {
     if (!this.soundOn) return;
+    const src = kind === 'bad' ? 'assets/sound-lose.wav' : 'assets/sound-gain.wav';
+    this.sounds = this.sounds || {};
+    try {
+      const prev = this.sounds[kind];
+      if (prev) { prev.pause(); prev.currentTime = 0; }
+      const a = prev || new Audio(src);
+      a.volume = kind === 'bad' ? 0.7 : 0.8;
+      this.sounds[kind] = a;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => this.beep(kind));
+    } catch { this.beep(kind); }
+  }
+  /** Preload the sound files so the first gain plays without delay. */
+  preloadSounds() {
+    this.sounds = this.sounds || {};
+    for (const [k, src] of [['good', 'assets/sound-gain.wav'], ['bad', 'assets/sound-lose.wav']]) if (!this.sounds[k]) { const a = new Audio(src); a.preload = 'auto'; this.sounds[k] = a; }
+  }
+  stopSounds() { for (const a of Object.values(this.sounds || {})) { try { a.pause(); a.currentTime = 0; } catch { /* ignore */ } } }
+  beep(kind) {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;

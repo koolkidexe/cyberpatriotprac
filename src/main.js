@@ -15,6 +15,7 @@ import * as users from './core/users.js';
 import * as K from './core/checks.js';
 import mintScenario from './scenarios/mint-round1/index.js';
 import ubuntuScenario from './scenarios/ubuntu-round1/index.js';
+import { makeRound, newSeed } from './scenarios/deck/index.js';
 import { UbuntuDesktop } from './ui/gnome-shell.js';
 import { loadApp } from './apps/registry.js';
 import { runExec } from './apps/launch.js';
@@ -50,13 +51,21 @@ function chooseOs() {
   });
 }
 const OS = await chooseOs();
-const scenario = SCENARIOS[OS];
+// Which round is loaded: the fixed Practice Round 1, or a randomly dealt one ("reshuffle", rebuilt from its seed).
+const ROUND_KEY = `cpsim.round.${OS}`;
+const round = store.get(ROUND_KEY) || { kind: 'fixed' };
+let scenario = SCENARIOS[OS];
+if (round.kind === 'deck') { try { scenario = makeRound(OS, round.seed); } catch (e) { console.error('could not deal round', e); store.del(ROUND_KEY); } }
+// A save only fits the exact set of checks it was made with. Restoring a save into a different (e.g. updated) set of
+// checks is what handed out free points on load, so a mismatch starts a fresh image instead.
+const FINGERPRINT = `${scenario.id}|v${scenario.version || 1}|${scenario.vulns.map((v) => `${v.id}:${v.points}`).join(',')}|${scenario.penalties.map((p) => p.id).join(',')}`;
 document.body.classList.add(`os-${OS}`);
 setIconTheme(OS === 'ubuntu' ? 'yaru' : 'mint');
 initTooltips();
 document.title = `CyberPatriot Simulator — ${scenario.imageName}`;
 const bootLabel = document.querySelector('#boot > div'); if (bootLabel) bootLabel.textContent = scenario.imageName;
-const SAVE_KEY = `cpsim.save.v1.${scenario.id}`;
+const SAVE_KEY = `cpsim.save.v2.${OS}`;
+store.del(`cpsim.save.v1.${SCENARIOS[OS].id}`); // saves from before versioning are not trusted
 const SET_KEY = 'cpsim.settings.v1';
 const BROWSER = OS === 'ubuntu' ? 'firefox' : 'chromium';
 
@@ -71,7 +80,9 @@ async function main() {
 
   let sys; let engineState = null; let restored = false;
   const saved = store.get(SAVE_KEY);
-  if (saved && saved.sys) {
+  let staleSave = false;
+  if (saved && saved.sys && saved.fp !== FINGERPRINT) { staleSave = true; store.del(SAVE_KEY); }
+  else if (saved && saved.sys) {
     try { sys = System.restore(saved.sys); mountVirtual(sys); engineState = saved.engine; restored = true; } catch (e) { console.error('restore failed', e); sys = null; }
   }
   if (!sys) sys = scenario.createMachine({});
@@ -81,6 +92,7 @@ async function main() {
   await new Promise((res) => { const im = new Image(); im.onload = () => { setCustomLogo('assets/cyberpatriot-logo.png'); res(); }; im.onerror = res; im.src = 'assets/cyberpatriot-logo.png'; });
   const ui = new UI({ overlay: document.getElementById('overlay'), toasts: document.getElementById('toasts'), sys });
   ui.soundOn = settings.sound;
+  ui.preloadSounds();
   const wm = new WindowManager(document.getElementById('winlayer'));
   const engine = new ScoringEngine(sys, scenario, engineState);
   engine.setMode(settings.mode);
@@ -114,10 +126,19 @@ async function main() {
       if (!left.length) { ui.toast({ title: 'Hint', message: 'Everything has been found. Nice work!', kind: 'info' }); return; }
       ui.alert({ title: 'Hint', heading: `${r.totalCount - r.foundCount} vulnerabilities left`, message: left.map(([n, c]) => `${n}: ${c}`).join('\n') + '\n\nRe-read the Scenario README, then audit users, services, software, files and configuration files.', icon: 'info' });
     },
+    /** Deal a brand-new random round of tasks (new people, files, answers and checks). */
+    async reshuffle({ ask = true } = {}) {
+      if (ask) {
+        const ok = await ui.confirm({ title: 'Reshuffle', heading: 'Deal a new round of tasks?', message: 'You get a fresh image with a new random set of problems, people and forensics questions. Your progress on this round is discarded.', ok: 'Reshuffle' });
+        if (!ok) return;
+      }
+      store.set(ROUND_KEY, { kind: 'deck', seed: newSeed() });
+      store.del(SAVE_KEY); location.href = `${location.pathname}?os=${OS}&fresh=1`;
+    },
     async reset() {
       const ok = await ui.confirm({ title: 'Reset image', heading: 'Start over from a fresh image?', message: 'All of your changes and your score will be erased.', ok: 'Reset', danger: true });
       if (!ok) return;
-      store.del(SAVE_KEY); location.href = location.pathname + '?fresh=1';
+      store.del(SAVE_KEY); location.href = `${location.pathname}?os=${OS}&fresh=1`;
     },
     lock() { showLock(env); },
     logout() { showGreeter(env, { onLogin: (name) => { env.user = name; env.desktop.renderIcons(); env.desktop.menuDirty = true; startAutostart(env); } }); },
@@ -136,11 +157,14 @@ async function main() {
 
   // ---- scoring notifications
   engine.on('score', ({ gained, lost, penalized, cleared }) => {
-    for (const v of gained) { ui.toast({ title: `You gained ${v.points} point${v.points === 1 ? '' : 's'}!`, message: v.title, kind: 'good' }); ui.ding('good'); }
-    for (const v of lost) { ui.toast({ title: `You lost ${v.points} point${v.points === 1 ? '' : 's'}!`, message: `${v.title} (no longer fixed)`, kind: 'bad' }); ui.ding('bad'); }
-    for (const p of penalized) { ui.toast({ title: `You lost ${p.points} points!`, message: p.title, kind: 'bad' }); ui.ding('bad'); }
+    for (const v of gained) { ui.toast({ title: `You gained ${v.points} point${v.points === 1 ? '' : 's'}!`, message: v.title, kind: 'good' }); }
+    for (const v of lost) { ui.toast({ title: `You lost ${v.points} point${v.points === 1 ? '' : 's'}!`, message: `${v.title} (no longer fixed)`, kind: 'bad' }); }
+    for (const p of penalized) { ui.toast({ title: `You lost ${p.points} points!`, message: p.title, kind: 'bad' }); }
+    // one sound per scoring update: the alarm if anything was lost, otherwise the gain sound
+    if (lost.length || penalized.length) ui.ding('bad'); else if (gained.length) ui.ding('good');
     void cleared;
     env.desktop.scoreTi.title = `Score: ${engine.score()} / ${engine.maxScore()}`;
+    if (gained.length && engine.score() >= engine.maxScore() && !engine.report().penalties.length) roundComplete(env);
   });
   engine.start();
 
@@ -150,7 +174,7 @@ async function main() {
   window.addEventListener('beforeunload', () => save());
   function save() {
     if (!sys.dirty && !env._savedOnce) { env._savedOnce = true; }
-    store.set(SAVE_KEY, { v: 1, sys: sys.snapshot(), engine: engine.serialize(), at: Date.now() });
+    store.set(SAVE_KEY, { v: 2, fp: FINGERPRINT, sys: sys.snapshot(), engine: engine.serialize(), at: Date.now() });
     sys.dirty = false;
   }
   env.save = save;
@@ -158,10 +182,24 @@ async function main() {
 
   document.getElementById('boot').classList.add('hide');
   setTimeout(() => document.getElementById('boot')?.remove(), 700);
+  if (staleSave) ui.toast({ title: 'Fresh image started', message: 'The simulator was updated since your last visit, so your old save no longer matched the scoring. A fresh copy of the image was started.', kind: 'info', ms: 10000 });
   if (!settings.welcomed && !restored) {
     settings.welcomed = true; env.saveSettings();
     showWelcome(env);
   }
+}
+
+function roundComplete(env) {
+  const key = `done:${env.scenario.id}`;
+  if (env.settings[key]) return;
+  env.settings[key] = true; env.saveSettings();
+  setTimeout(() => env.ui.modal((done) => h('div', { class: 'dlg', style: { maxWidth: '520px' } },
+    h('div', { class: 'dt' }, 'Round complete'),
+    h('div', { class: 'db' }, icon('score', 56), h('div', { class: 'txt' },
+      h('h3', null, `100 out of 100 — all ${env.scenario.vulns.length} checks found!`),
+      h('p', null, 'Every problem in this round is fixed and there are no penalties. Deal a new random round to keep practising: new people, new files, new forensics questions and a different set of problems.'))),
+    h('div', { class: 'df' }, h('button', { class: 'btn', title: 'Stay on this round', onclick: () => done(false) }, 'Not now'),
+      h('button', { class: 'btn primary', title: 'Deal a new random round', onclick: () => { done(true); env.reshuffle({ ask: false }); } }, '↻ Reshuffle')))), 1500);
 }
 
 function startAutostart(env) {
@@ -188,7 +226,7 @@ function showWelcome(env) {
     h('div', { class: 'db' }, icon('shield', 56), h('div', { class: 'txt' },
       h('h3', null, `${env.scenario.title} — ${env.scenario.imageName}`),
       h('p', null, 'This is a practice simulator for CyberPatriot-style Linux hardening. Everything runs in your browser: the desktop, the terminal and the scoring.'),
-      h('p', null, 'Start by opening the “Scenario README” on the desktop, then secure the computer. Open the “Scoring Report” to see your points. You can answer the two Forensics Questions by editing the files on the desktop.'),
+      h('p', null, `Start by opening the “Scenario README” on the desktop, then secure the computer. Open the “Scoring Report” to see your points. You can answer the ${env.scenario.forensics.length} Forensics Questions by editing the files on the desktop.`),
       h('p', null, h('b', null, 'Your login: '), `${env.scenario.user} / ${env.scenario.password}`),
       h('p', { style: { fontSize: '12px', color: '#6c7378' } }, 'Progress is saved in this browser. Use the chart icon in the panel for hints, scoring speed and reset.'))),
     h('div', { class: 'df' }, h('button', { class: 'btn primary', onclick: () => { done(true); env.openApp(BROWSER, { args: ['file:///opt/CyberPatriot/README.html'] }); } }, 'Open the README'), h('button', { class: 'btn', onclick: () => done(true) }, 'Start')),

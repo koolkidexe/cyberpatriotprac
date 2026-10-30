@@ -155,6 +155,14 @@ The Oct 27-28 round is done. Note: the zip the user uploaded on Oct 29 predated 
 - Tooltips: fallback `autoTip` in `tooltip.js`. Audit script idea: open every app, dispatch mouseover on every control, list ones without `title`/`data-tip` (0 on both images as of Oct 29).
 - 29 tests pass.
 
+## Oct 30 round
+- Bug fixed: free points on load. Cause: saves were restored into a newer set of checks, so checks added later (browser settings, new packages) counted as already fixed. Saves are now `cpsim.save.v2.<os>` with a fingerprint of the scenario's check ids/points; a mismatch discards the save and shows a toast. v1 saves are deleted.
+- Reshuffle deck: `src/scenarios/deck/` (`names.js` pools, `cards.js` task cards with plan/apply/vuln/solve, `index.js` `makeRound(os, seed)` dealing + exact-100 point scaling + README). Round choice stored in `cpsim.round.<os>` ({kind:'fixed'} or {kind:'deck', seed}); `env.reshuffle()`; ↻ tray icon on both desktops; completion dialog at 100/100 (`roundComplete` in main.js).
+- `tests/deck.test.mjs`: every dealt round starts at 0 with no penalties, totals 100, and its `solution` solves it to 100. This test found two real bugs (snmpd's `Debian-snmp` system user was rejected by useradd/groupadd; two update cards overlapped).
+- Logos: user-supplied `assets/logo-firefox.png`, `logo-chromium.png`, `logo-mint.png` (icons.js `LOGOS`; Mint menu button; silver emblem embedded in `wallpaper-mint.svg`, generator idea: Python script drawing isometric cubes + base64 logo with a greyscale filter).
+- Mint uses Chromium only: Firefox is not installed on the Mint image (catalog `over.mint`), panel launcher/favorites/xdg-open use Chromium. Panel order: menu, Chromium, Show Desktop, Files, Terminal.
+- Scoring report now looks like the real CCS report (logo, round title + image, start/running times, connection status lines).
+
 ## Next (agreed order)
 1. Windows image — scope with the user first (local security policy, users, services, firewall, Windows 10 look; roughly as big as everything so far).
 2. More past-year tasks if the user sends the written list.

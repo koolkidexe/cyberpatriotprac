@@ -84,8 +84,8 @@ body.os-ubuntu.dock-bottom #dock { flex-direction: row; left: 50%; right: auto; 
 body.os-ubuntu.dock-bottom #dock .dots { left: 0; right: 0; top: auto; bottom: -1px; flex-direction: row; justify-content: center; }
 body.os-ubuntu.dock-bottom #dock .dsep { width: 1px; height: 36px; margin: 0 3px; }
 body.os-ubuntu.dock-bottom #dock .dsp { display: none; }
-body.os-ubuntu.dock-bottom #dock .showapps { order: -1; }
 body.os-ubuntu.dock-bottom #dock .trash { order: 50; }
+body.os-ubuntu #dock .showapps { order: 60; }
 body.os-ubuntu.dock-bottom #menu { left: 0; bottom: 72px; }
 body.os-ubuntu.dock-right #winlayer { inset: 28px 64px 0 0; }
 body.os-ubuntu.dock-right #dock { left: auto; right: 0; }

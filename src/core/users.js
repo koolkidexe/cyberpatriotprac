@@ -106,7 +106,7 @@ export function validName(name) {
 
 // ---------------------------------------------------------------- groups
 export function groupAdd(sys, name, { gid, system = false } = {}) {
-  if (!validName(name)) throw new CmdError(`groupadd: '${name}' is not a valid group name`, 3);
+  if (!validName(name) && !(system && /^[A-Za-z_][A-Za-z0-9_-]*$/.test(name))) throw new CmdError(`groupadd: '${name}' is not a valid group name`, 3);
   const groups = readGroups(sys);
   if (groups.some((g) => g.name === name)) throw new CmdError(`groupadd: group '${name}' already exists`, 9);
   if (gid != null && groups.some((g) => g.gid === gid)) throw new CmdError(`groupadd: GID '${gid}' already exists`, 4);
@@ -154,7 +154,8 @@ export function setMembers(sys, group, members) {
 // ---------------------------------------------------------------- users
 export function userAdd(sys, o) {
   const { name } = o;
-  if (!validName(name)) throw new CmdError(`useradd: invalid user name '${name}'`, 3);
+  // package maintainer scripts may create system accounts outside the interactive rules (e.g. Debian-snmp)
+  if (!validName(name) && !(o.system && /^[A-Za-z_][A-Za-z0-9_-]*$/.test(name))) throw new CmdError(`useradd: invalid user name '${name}'`, 3);
   const users = readPasswd(sys);
   if (users.some((u) => u.name === name)) throw new CmdError(`useradd: user '${name}' already exists`, 9);
   const system = !!o.system;

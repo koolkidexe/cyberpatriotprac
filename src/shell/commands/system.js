@@ -845,7 +845,7 @@ cmd('xdg-open', (ctx) => {
   const isUrl = /^[a-z]+:\/\//i.test(target);
   const path = isUrl ? target : ctx.resolve(target);
   if (!isUrl && !ctx.fs.exists(path)) { ctx.err(`xdg-open: file '${target}' does not exist\n`); return 3; }
-  const app = isUrl || /\.html?$/i.test(path) ? 'firefox' : ctx.fs.isDir(path) ? 'nemo' : /\.(txt|md|conf|cfg|log|sh|py|ini)$/i.test(path) ? 'xed' : 'generic';
+  const app = isUrl || /\.html?$/i.test(path) ? (pk.isInstalled(ctx.sys, 'chromium') ? 'chromium' : 'firefox') : ctx.fs.isDir(path) ? 'nemo' : /\.(txt|md|conf|cfg|log|sh|py|ini)$/i.test(path) ? 'xed' : 'generic';
   ctx.term.launch?.(app, { name: 'xdg-open', args: [path], user: ctx.user, cwd: ctx.cwd });
   return 0;
 });

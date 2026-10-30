@@ -4,8 +4,8 @@ import mint from '../src/scenarios/mint-round1/index.js';
 import ubuntu from '../src/scenarios/ubuntu-round1/index.js';
 import { ScoringEngine } from '../src/core/scoring.js';
 
-export function makeEnv({ user = 'student', seed = 1, os = 'mint' } = {}) {
-  const scenario = os === 'ubuntu' ? ubuntu : mint;
+export function makeEnv({ user = 'student', seed = 1, os = 'mint', scenario: sc } = {}) {
+  const scenario = sc || (os === 'ubuntu' ? ubuntu : mint);
   let t = Date.UTC(2026, 9, 24, 20, 48, 0); // fixed clock: Sat 2026-10-24 16:48 EDT
   let s = seed;
   const rng = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
