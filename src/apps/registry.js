@@ -17,10 +17,23 @@ const LOADERS = {
   startup: () => import('./startup.js'),
   printers: () => import('./generic.js'),
   generic: () => import('./generic.js'),
+  // Windows 11
+  chrome: () => import('./browser.js'),
+  explorer: () => import('./win-explorer.js'),
+  notepad: () => import('./win-notepad.js'),
+  compmgmt: () => import('./win-mmc.js'), lusrmgr: () => import('./win-mmc.js'), services: () => import('./win-mmc.js'), shares: () => import('./win-mmc.js'), taskschd: () => import('./win-mmc.js'), secpol: () => import('./win-mmc.js'),
+  settings_win: () => import('./win-settings.js'), security: () => import('./win-settings.js'),
+  control: () => import('./win-control.js'), firewall: () => import('./win-control.js'), programs: () => import('./win-control.js'), sysdm: () => import('./win-control.js'), features: () => import('./win-control.js'),
+  taskmgr: () => import('./win-tools.js'), regedit: () => import('./win-tools.js'),
+  gpedit: () => import('./win-mmc.js'), notepadpp: () => import('./win-npp.js'), wireshark: () => import('./win-wireshark.js'),
+  run: () => import('../ui/win-run.js'),
+  elevate: () => Promise.resolve({ open: (env, o) => { const { app, ...rest } = o; void app; return env.elevate?.(rest); } }),
 };
+const WIN_ONLY = { settings: 'settings_win' };
 const ALIASES = { gufw: 'gufw' };
 
-export async function loadApp(id) {
+export async function loadApp(id, os) {
+  if (os === 'windows' && WIN_ONLY[id]) id = WIN_ONLY[id];
   const key = LOADERS[id] ? id : 'generic';
   const mod = await LOADERS[key]();
   return mod.open;

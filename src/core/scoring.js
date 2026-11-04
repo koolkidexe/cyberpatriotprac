@@ -62,7 +62,7 @@ export class ScoringEngine {
   elapsedMs() { return this.state.elapsedMs + (this.timer ? Math.max(0, this.sys.now() - this.lastTick) : 0); }
 
   report() {
-    const found = this.scenario.vulns.filter((v) => this.state.found[v.id]).sort((a, b) => this.state.found[a.id] - this.state.found[b.id]);
+    const found = this.scenario.vulns.filter((v) => this.state.found[v.id]); // the real report lists checks in the image's own order, not the order you fixed them
     const pens = this.scenario.penalties.filter((p) => this.state.penalties[p.id]);
     const byCat = {};
     for (const v of this.scenario.vulns) { const c = (byCat[v.category] ||= { total: 0, found: 0, points: 0, max: 0 }); c.total++; c.max += v.points; if (this.state.found[v.id]) { c.found++; c.points += v.points; } }

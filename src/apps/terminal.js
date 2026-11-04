@@ -3,6 +3,9 @@ import { h } from '../ui/dom.js';
 import { AnsiView } from '../ui/ansi.js';
 import { openNano, openVi } from '../ui/editors.js';
 import { createShell } from '../shell/index.js';
+import { createWinShell } from '../win/shell.js';
+import { WIN_VERSION } from '../win/image.js';
+import { icon } from '../ui/icons.js';
 
 let ttyCounter = 0;
 
@@ -14,7 +17,8 @@ export function openTerminal(env, opts = {}) {
   const view = new AnsiView(out);
   // GNOME Terminal 3.44 as shipped on Mint 21 / Ubuntu 22.04: menu bar (Mint) and the dark theme variant
   const menuItem = (n, items) => h('div', { class: 'mi', title: `${n} menu`, onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom, items()); } }, n);
-  const termMenu = env.os === 'ubuntu' ? null : h('div', { class: 'menubar term-menu' },
+  const isWin = env.os === 'windows';
+  const termMenu = env.os === 'ubuntu' || isWin ? null : h('div', { class: 'menubar term-menu' },
     menuItem('File', () => [{ label: 'New Window', action: () => env.openApp('terminal', { user }) }, 'sep', { label: 'Close Window', action: () => win.close() }]),
     menuItem('Edit', () => [{ label: 'Copy', action: () => document.execCommand('copy') }, { label: 'Select All', action: () => { const r = document.createRange(); r.selectNodeContents(out); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r); } }]),
     menuItem('View', () => [{ label: 'Zoom In', action: () => zoom(1) }, { label: 'Normal Size', action: () => zoom(0) }, { label: 'Zoom Out', action: () => zoom(-1) }]),
@@ -23,8 +27,19 @@ export function openTerminal(env, opts = {}) {
     menuItem('Help', () => [{ label: 'About', action: () => env.ui.alert({ title: 'About Terminal', heading: 'GNOME Terminal 3.44.0', message: 'Simulated terminal running bash 5.1.', icon: 'terminal' }) }]));
   let fsz = 15;
   function zoom(d) { fsz = d === 0 ? 15 : Math.max(9, Math.min(28, fsz + d * 2)); term.style.fontSize = fsz + 'px'; }
-  const wrap = termMenu ? h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, termMenu, term) : term;
-  const win = env.wm.open({ title: `${user}@${env.sys.hostname}: ~`, icon: 'terminal', width: 760, height: 470, appId: 'terminal', content: wrap, minW: 360, minH: 200, cls: 'term-win' });
+  // Windows Terminal: a frameless window whose title bar is the tab strip
+  const mode = opts.mode || (opts.cmd ? 'cmd' : 'ps');
+  const elevated = !!opts.elevated;
+  const tabTitle = h('span', { class: 'wt-tt' }, '');
+  const wtBar = isWin ? h('div', { class: 'wt-bar' },
+    h('div', { class: 'wt-tab', title: 'Current tab' }, icon(mode === 'cmd' ? 'w-cmd' : 'w-powershell', 16), tabTitle, h('span', { class: 'wt-x no-drag', title: 'Close tab', onclick: () => win.close() }, '✕')),
+    h('button', { class: 'wt-new no-drag', title: 'New tab (opens a new window)', onclick: () => env.openApp('terminal', { mode, elevated }) }, '+'),
+    h('button', { class: 'wt-dd no-drag', title: 'Open a different profile', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom, [{ label: 'Windows PowerShell', action: () => env.openApp('terminal', { mode: 'ps', elevated }) }, { label: 'Command Prompt', action: () => env.openApp('terminal', { mode: 'cmd', elevated }) }, 'sep', { label: 'Run as administrator…', action: () => env.elevate?.({ app: 'terminal', mode }) }, 'sep', { label: 'Settings', action: () => env.ui.toast({ title: 'Terminal', message: 'Settings are not part of the simulation.', kind: 'info' }) }]); } }, '⌄'),
+    h('div', { class: 'wt-drag' })) : null;
+  let wrap = termMenu ? h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, termMenu, term) : term;
+  if (isWin) wrap = h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, wtBar, term);
+  const win = env.wm.open({ title: isWin ? 'Windows PowerShell' : `${user}@${env.sys.hostname}: ~`, icon: isWin ? (mode === 'cmd' ? 'w-cmd' : 'w-terminal') : 'terminal', width: 780, height: 480, appId: 'terminal', content: wrap, minW: 360, minH: 200, cls: 'term-win' + (isWin ? ' wt' : ''), frameless: isWin });
+  if (isWin) { wtBar.append(win.controls()); win.makeDraggable(wtBar); }
   const ttyNo = ++ttyCounter;
   let overlayOpen = false;
   let state = null; // active input request
@@ -54,13 +69,14 @@ export function openTerminal(env, opts = {}) {
     get cols() { return Math.max(20, Math.floor((term.clientWidth - 16) / cell().w)); },
     get rows() { return Math.max(5, Math.floor(term.clientHeight / cell().h)); },
   };
-  const shell = createShell(env.sys, { user, io });
+  const shell = isWin ? createWinShell(env.sys, { user, io, elevated, mode }) : createShell(env.sys, { user, io });
   shell.ttyNo = ttyNo;
   if (opts.cwd && env.sys.vfs.isDir(opts.cwd)) shell.cwd = opts.cwd;
   win.shell = shell;
 
   function scroll() { term.scrollTop = term.scrollHeight; }
   function title() {
+    if (isWin) { const t = shell.title(); win.setTitle(t); tabTitle.textContent = t; return; }
     const home = shell.env.HOME;
     let p = shell.cwd;
     if (home && (p === home || p.startsWith(home + '/'))) p = '~' + p.slice(home.length);
@@ -183,7 +199,7 @@ export function openTerminal(env, opts = {}) {
     if (r.candidates.length === 1) { apply(r.escaped[0], r.single ? ' ' : ''); renderInput(); return; }
     const cp = commonPrefix(r.candidates);
     const word = s.buf.slice(r.start, s.pos).replace(/\\(.)/g, '$1');
-    if (cp.length > word.length) { apply(r.escaped[0].slice(0, 0) + cp.replace(/([ '"\\&;|()<>*?[\]$`!#])/g, '\\$1'), ''); renderInput(); return; }
+    if (cp.length > word.length) { apply(isWin ? cp : cp.replace(/([ '"\\&;|()<>*?[\]$`!#])/g, '\\$1'), ''); renderInput(); return; }
     s.tabs = (s.tabs || 0) + 1;
     if (s.tabs >= 2) {
       const cols = Math.max(1, Math.floor(io.cols / (Math.max(...r.candidates.map((c) => c.length)) + 2)));
@@ -220,7 +236,8 @@ export function openTerminal(env, opts = {}) {
   win.onClose(() => { alive = false; document.removeEventListener('paste', onPaste, true); if (state) { const r = state.resolve; state = null; r(null); } shell.saveHistory?.(); });
   win.el.addEventListener('wmresize', () => scroll());
 
-  // greeting like a real session: nothing (bash starts straight at the prompt)
+  // greeting like a real session: nothing for bash; Windows prints its banner
+  if (isWin) view.write(mode === 'cmd' ? `Microsoft Windows [Version 10.0.${WIN_VERSION.build}.${WIN_VERSION.ubr}]\n(c) Microsoft Corporation. All rights reserved.\n\n` : 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nInstall the latest PowerShell for new features and improvements! https://aka.ms/PSWindows\n\n');
   mainLoop();
   setTimeout(() => term.focus(), 30);
   if (opts.run) setTimeout(() => runLine(opts.run), 50);

@@ -23,7 +23,7 @@ export class WindowManager {
     const height = Math.min(opts.height || 440, H - 10);
     const off = (this.cascade++ % 8) * 26;
     const x = opts.x ?? Math.max(0, Math.round((W - width) / 2) - 60 + off);
-    const y = opts.y ?? Math.max(0, Math.round((H - height) / 2) - 40 + off);
+    const y = opts.y ?? Math.max(0, Math.min(H - height - 4, Math.round((H - height) / 2) - 40 + off));
     const titleEl = h('div', { class: 'tt' }, opts.title || '');
     const btnMin = h('button', { title: 'Minimize', onclick: (e) => { e.stopPropagation(); win.minimize(); } }, '–');
     const btnMax = h('button', { title: 'Maximize', onclick: (e) => { e.stopPropagation(); win.toggleMax(); }, style: opts.noMax ? { display: 'none' } : null }, '□');

@@ -11,8 +11,12 @@ const WM = (() => {
   return `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='320' height='220'><g font-family='monospace' font-size='11' fill='#9aa0a6' fill-opacity='.35'>${t}</g></svg>`)}")`;
 })();
 
-export function reportHtml(r, { mode = 'instant', title = 'CyberPatriot Practice Round', imageName = '' } = {}) {
-  const line = (x, sign = '') => `<div class="l">${esc(x.title)} - ${sign}${x.points} pts</div>`;
+// Competition reports since 2025 hide which program was updated or removed; training images still name them.
+const GENERIC = { 'Application Updates': 'Application update check passed', 'Unwanted Software': 'Unwanted software check passed', 'Prohibited Software': 'Unwanted software check passed' };
+const MAX_MS = 4 * 3600000; // a competition round is four hours
+
+export function reportHtml(r, { mode = 'instant', title = 'CyberPatriot Practice Round', imageName = '', names = 'detailed' } = {}) {
+  const line = (x, sign = '') => `<div class="l">${esc(names === 'generic' && GENERIC[x.category] ? GENERIC[x.category] : x.title)} - ${sign}${x.points} pts</div>`;
   const pen = r.penalties.map((p) => line(p, '-')).join('');
   const found = r.found.map((f) => line(f)).join('');
   const start = r.generatedAt - r.elapsedMs;
@@ -29,17 +33,21 @@ export function reportHtml(r, { mode = 'instant', title = 'CyberPatriot Practice
   .pts{text-align:center;font-size:24px;font-weight:700;margin:10px 0 20px}
   h3{font-size:17px;margin:20px 0 8px}
   .l{font-size:14.5px;line-height:1.28}
+  .warn{color:#e08a00;font-weight:700;font-size:17px;margin:12px 0}
+  a{color:#1a0dab}
   .foot{margin-top:34px;text-align:center;color:#555;font-size:13px;line-height:1.6}
   </style></head><body><div class="wrap">
   <img class="logo" src="assets/cyberpatriot-logo.png" alt="">
   <h1>${esc(title)}${imageName ? ` ${esc(imageName)}` : ''}</h1>
   <h2>Report Generated At: ${fmtTime(r.generatedAt)}</h2>
   <div class="meta">Image Start Time: ${fmtTime(start)}, Running Time: <span class="run">${fmtRun(r.elapsedMs)}</span><br>Team Start Time: ${fmtTime(start)}, Running Time: <span class="run">${fmtRun(r.elapsedMs)}</span></div>
-  <p class="meta"><b>Connection Status:</b> <span class="cs">Scoring Data Saved Locally: No Errors Detected</span><br>Internet Connectivity Check: ${ok}<br>CCS Server Connection Status: ${ok}<br>CCS Server Score Upload Status: ${ok}</p>
+  ${r.elapsedMs > MAX_MS - 30 * 60000 ? `<p class="warn">${r.elapsedMs >= MAX_MS ? 'WARNING: The observed time for this team has exceeded the maximum competition time' : 'WARNING: The observed time for this team is approaching the maximum competition time'}</p>` : ''}
+  <p class="meta"><a href="https://scoreboard.uscyberpatriot.org/" title="Opens the public scoreboard website">Click here to view the public scoreboard</a></p>
+  <p class="meta"><b>Connection Status:</b> <span class="cs">Scoring Data Uploaded Successfully: No Errors Detected</span><br>Internet Connectivity Check: ${ok}<br>CCS Server Connection Status: ${ok}<br>CCS Server Score Upload Status: ${ok}</p>
   <div class="id">Current Team Unique ID: <span>${esc(r.teamId)}</span></div>
   <div class="pts">${r.score} out of ${r.maxScore} points received</div>
   <h3>${r.penalties.length} penalt${r.penalties.length === 1 ? 'y' : 'ies'} assessed, for a loss of ${r.penaltyPoints} points:</h3>${pen}
   <h3>${r.foundCount} out of ${r.totalCount} scored checks passed, for a gain of ${r.gainPoints} points:</h3>${found}
-  <div class="foot">Unofficial CyberPatriot practice simulator${mode === 'instant' ? ' — scoring updates instantly' : ' — scoring updates about every minute'}. This page refreshes automatically.<br>Finished? Use the ↻ reshuffle button in the panel to deal a new random round.</div>
+  <div class="foot">Unofficial CyberPatriot practice simulator${mode === 'instant' ? ' — scoring updates instantly' : ' — scoring updates about every minute'}. This page refreshes automatically.<br>Finished? Use the ↻ reshuffle button in the panel or taskbar to deal a new random round.</div>
   </div></body></html>`;
 }

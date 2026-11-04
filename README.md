@@ -1,6 +1,6 @@
-# CyberPatriot Simulator (Linux Mint 21 + Ubuntu 22.04)
+# CyberPatriot Simulator (Linux Mint 21, Ubuntu 22.04, Windows 11)
 
-A **static website** that simulates a CyberPatriot Linux practice image: a fake Linux Mint 21 "Cinnamon" desktop in your browser, with a deliberately misconfigured virtual computer you have to secure, a simulated terminal, GUI admin apps, a scenario README, forensics questions, and a live Scoring Report with "You gained / lost points" popups. No VM, no backend, no build step.
+A **static website** that simulates CyberPatriot practice images (Linux Mint, Ubuntu and Windows 11). For Linux: a fake Linux Mint 21 "Cinnamon" desktop in your browser, with a deliberately misconfigured virtual computer you have to secure, a simulated terminal, GUI admin apps, a scenario README, forensics questions, and a live Scoring Report with "You gained / lost points" popups. No VM, no backend, no build step.
 
 > Status: **work in progress.** The simulation engine, the shell and the scoring are finished and tested. The desktop UIs for Mint and Ubuntu are built; polish items are listed in "What's done / what's left" below.
 
@@ -30,15 +30,60 @@ tests/         node:test suites incl. a full scripted solve that must reach exac
 ### The bundled scenario: "Mint Practice Round 1"
 100 points, penalties of −5. 3 forensics questions, user auditing (unauthorized users, hidden UID 0 account, wrongly-privileged users, weak passwords), account policy (guest login, password age/length, lockout, empty passwords, sudo without password), updates, firewall, SSH hardening (note the `sshd_config.d` trap), sysctl, prohibited software/files, a respawning backdoor (cron + listener), a malicious autostart entry and `/etc/shadow` permissions. Since Oct 29 it also scores past-season task types: create a missing user, force a password change at next login, install security updates, remove Apache2 / AisleRiot / Ophcrack, and Chromium pop-up blocking and Safe Browsing. A full scripted solve in `tests/solve.test.mjs` proves all 100 points are reachable and that nothing scores by accident.
 
+## Reshuffle: random rounds
+
+Press the **↻** button in the panel (or simulator menu → New round) to deal a new random round. A round is built from a deck of about 45 task cards modelled on real round reports (unauthorized and hidden-root users, admin rights, weak/missing passwords, new hires, forced password changes, groups, password and lockout policy, guest/auto login, firewall and its default policy, automatic updates, security/OpenSSH/systemd/sudo/browser updates, SSH, sysctl, browser pop-ups and Safe Browsing, unwanted services, prohibited software and files, file permissions, cron/autostart/SUID backdoors) plus 2-3 forensics questions. People, file names, ports, answers and points are random; the README is written to match, and points always total exactly 100 (usually 20-30 checks, 3-6 points each). Code: `src/scenarios/deck/`. `tests/deck.test.mjs` deals many rounds per OS and checks each starts at 0 and can be solved to exactly 100 through the terminal (`DECK_SEEDS=100 npm test` for a bigger sweep). When you reach 100/100 with no penalties, the simulator offers a reshuffle.
+
+Saves are tied to the exact set of checks they were made with; a save from an older version is discarded (with a notice) instead of being loaded, so nothing is ever scored on load.
+
 ## Images
 
 | Image | Desktop | Scenario | Pick it with |
 |---|---|---|---|
 | Linux Mint 21.3 | Cinnamon (bottom panel) | Mint Practice Round 1, 100 pts | start page, or `?os=mint` |
 | Ubuntu 22.04 | GNOME/Yaru (top bar + dock) | Ubuntu Practice Round 1, 100 pts | start page, or `?os=ubuntu` |
+| Windows 11 Pro 23H2 | Windows 11 (centred taskbar, Start, Search) | Windows Practice Round 1, 100 pts | start page, or `?os=windows` |
 
-The choice is remembered; switch with the chart icon → "Switch OS…". Saves are per image. Ubuntu logins: `student` / `Student#Ubuntu22` (Mint: `Student#Mint21`).
+The choice is remembered; switch with the chart icon → "Switch OS…". Saves are per image. Ubuntu logins: `student` / `Student#Ubuntu22` (Mint: `Student#Mint21`, Windows: `Student#Win11`).
 Both images share the same engine, shell, apps and scoring; the distro differences live in `src/images/catalog.js` (`only` / `over` tags, `applyDistro`), `src/images/mint21.js` (`DISTROS` table, `buildUbuntu22`), the scenario folders and `src/ui/gnome-shell.js` + `css/ubuntu.css`.
+
+
+## Windows 11 image
+
+Everything Windows lives on `sys.win` (users, groups, account/audit policy, user rights, a registry, services, firewall profiles and rules, Defender, optional features, programs, updates, shares, scheduled tasks) and is saved with the rest of the machine. The C: drive is the virtual filesystem's `/` (`C:\Users\student` = `/Users/student`), paths are case-insensitive.
+
+```
+src/win/state.js    the model + every operation (addUser, setPolicy, setSecopt, stopService, setFirewall, regSet, ...)
+src/win/image.js    a clean Windows 11 Pro 23H2 install (services, registry defaults, programs, updates, built-in accounts)
+src/win/native.js   net, sc, reg, netsh advfirewall, auditpol, secedit, schtasks, wmic, winget, certutil, netstat, tasklist, ...
+src/win/shell.js    PowerShell 5.1 (object pipeline, Where/ForEach/Select/Sort/Format-*, variables, $env:, sub-expressions,
+                    ~90 cmdlets: *-LocalUser/Group/GroupMember, *-Service, *-Process, *-NetFirewallProfile/Rule, *-SmbShare,
+                    *-WindowsOptionalFeature, *-MpPreference, Get/Install-WindowsUpdate, *-ScheduledTask, registry provider
+                    (HKLM:\), file cmdlets, Get-FileHash, Select-String, [Convert]::FromBase64String, Start-Process -Verb RunAs)
+                    and cmd.exe (dir, cd, type, del, set, findstr, &&, |). Real error text and formatting.
+src/scenarios/win-deck/  Windows task cards + makeWinRound(seed); "Windows Practice Round 1" is the round from a fixed seed
+src/ui/win-shell.js      taskbar, Start + search, flyouts, desktop icons, lock/sign-in, User Account Control
+src/apps/win-*.js        Explorer, Notepad, Computer Management (users, groups, services, shares, Task Scheduler),
+                         Local Security Policy, Settings, Windows Security, Control Panel (Firewall, Programs and Features,
+                         System Properties > Remote, Windows Features), Task Manager, Registry Editor
+```
+
+Administrator rights work like Windows: the terminal opens unelevated; right-click Terminal > **Run as administrator** (or Win+X style menu on the Start button) shows a UAC prompt. MMC consoles always ask. Turning UAC off in the registry (one of the tasks) makes elevation silent.
+
+Task types (from real Windows round reports): unauthorized users, users who should not be admins, admins who should be, weak or blank passwords, password never expires, new hires, Guest and built-in Administrator enabled, Remote Desktop Users group, a new group with members; password length/history/age, complexity, reversible encryption, lockout threshold and duration; security options (blank passwords console only, anonymous SAM enumeration, CTRL+ALT+DEL, LM hash, last user name, shutdown without logon, UAC), audit policy subcategories, user rights (Act as part of the OS, Debug programs); firewall profiles and an inbound allow rule; Defender real-time protection (sometimes via policy); SmartScreen; Remote Desktop off (or NLA on when RDP is required); SMB v1; PowerShell 2.0; a hidden share; auto logon; AutoPlay; FTP/IIS/Telnet/SNMP/Remote Registry/UPnP services; Windows updates, automatic updates and the Windows Update service; Notepad++/Chrome/7-Zip updates; Wireshark, Cursor, Nmap, uTorrent, Angry IP Scanner, CCleaner, Steam, portable hacking tools; media and password files; a netcat backdoor that respawns from a scheduled task, a Run-key keylogger, a hijacked hosts file; Chrome pop-ups and Safe Browsing (via Chrome policy in the registry). Forensics: Base64 message, SID of a user, SHA256 of a file, backdoor port, hidden share path, scheduled task name, a password hidden in a text file.
+
+`tests/windows.test.mjs` deals many Windows rounds and solves each one to exactly 100 through an elevated PowerShell session (every card carries its real PowerShell fix).
+
+**Matched to the CyberPatriot Windows 11 Training 2 answer key and real round photos (Nov 2026):**
+- *Windows Practice Round 1* has the Training 2 structure: 25 checks (pcap and one-time-pad forensics, Guest, 2 unauthorized users, a new user, 2 unauthorized admins, password expires, length, reversible encryption, complexity, SMB client signing, CTRL+ALT+DEL, WinRM unencrypted traffic and Remote Desktop through gpedit, firewall, Notepad++ and Chrome updates, an exploit script, Jellyfin / Burp Suite / Python / Nmap, Apache ServerSignature), with its own people, files and answers.
+- Penalties from the key: "Account lockout threshold less than 5 is deprecated" and "Chrome / Notepad++ / 7-Zip / Wireshark is not installed at the default location".
+- The answer key's own methods all work: Computer Management, Settings > Accounts > Other users > Change account type, secpol.msc and **gpedit.msc** (Local Group Policy Editor: Administrative Templates mapped to the real HKLM\SOFTWARE\Policies values) from the **Run** dialog (Win+R, Ctrl+Alt+R or right-click Start), Windows Security, **Notepad++ > ? > Update Notepad++** (updater + installer wizard), Chrome's **Update** pill / About Chrome > Relaunch, deleting program folders or desktop shortcuts, editing `C:\Apache24\conf\httpd.conf` with Notepad++.
+- **Wireshark** opens `attack.pcap` (packet list with the default colouring, display filters such as `ip.addr == x`, `tcp.flags.syn == 1`, `http`, details and bytes panes, Statistics). A practice one-time-pad tool lives at `https://otp-tools.example/`.
+- More task types from the 2025 report photo: "User X is no longer a Backup Operator", "Audit Security Group Management [Failure]", Windows Installer AlwaysInstallElevated, Apache ServerTokens / directory listing.
+- Taskbar like the competition VM: left-aligned with Start, a "Type here to search" box, Task View and pinned Chrome, Wireshark, File Explorer, Notepad++, Windows PowerShell, Settings. It follows the real `TaskbarAl` / `SearchboxTaskbarMode` registry values; Settings > Personalization > Taskbar switches to the centred Windows 11 layout.
+- Scoring report: checks listed in the image's order, the four-hour time warning, the public scoreboard link, "Scoring Data Uploaded Successfully", and an optional competition style (simulator menu > Report check names > Generic) that says "Application update check passed" / "Unwanted software check passed" like 2025 reports.
+
+**Real websites in the browsers:** any address the simulated web doesn't know (and address-bar searches, via Google's embeddable results page) loads the real site live in an iframe, with an "Open in a real tab" link for sites that refuse to be framed.
 
 ## What's done
 
@@ -49,7 +94,7 @@ Both images share the same engine, shell, apps and scoring; the distro differenc
 - Firewall: ufw (enable/disable/default/allow/deny/delete/status verbose|numbered/reset/logging), sysctl, cron/crontab with respawning backdoor
 - Shell: quoting, variables, `$(…)`, arithmetic, globs, pipes, redirects, `&&`/`||`/`;`, `for`/`while`/`if`, history expansion, aliases, tab completion API, `~/.bashrc`, command-not-found suggestions, ~200 commands (coreutils-like, grep/sed/awk subset, find with `-exec`, ps/top/kill, journalctl, man (short pages), nano/vi hooks, GUI launchers)
 - Scoring engine (instant or realistic 60 s mode), report object, penalties, persistence round trip
-- Desktop UI (`index.html`, `css/`, `src/main.js`, `src/ui/*`): Cinnamon-style panel, start menu from `.desktop` files, window manager, desktop icons, polkit-style auth dialog, "You gained / lost points" toasts + sounds, welcome dialog, lock screen/greeter, tray menu (scoring mode, sound, hint, report, reset), autosave to localStorage, reboot semantics
+- Desktop UI (`index.html`, `css/`, `src/main.js`, `src/ui/*`): Cinnamon-style panel, start menu from `.desktop` files, window manager, desktop icons, polkit-style auth dialog, "You gained / lost points" toasts + sounds (`assets/sound-gain.wav` on a gain, `assets/sound-lose.wav` alarm on a loss or penalty, once per scoring update; muting stops them), welcome dialog, lock screen/greeter, tray menu (scoring mode, sound, hint, report, reset), autosave to localStorage, reboot semantics
 - GUI apps (`src/apps/*`): Terminal (history, Tab completion, nano/vi overlays), Files/Nemo (Open as Root, trash, Properties → Permissions), Text Editor (xed), Chromium/Firefox viewer (tabs, README, live CCS-style Scoring Report at `/opt/CyberPatriot/ScoringReport.html`), Users and Groups, Firewall (gufw), Update Manager (+ auto-refresh preference), Software Manager, Startup Applications, Login Window (guest sessions), System Monitor, System Settings. All of them read/write the same virtual system as the terminal, so a fix made either way scores identically
 - Looks follow real reference screenshots. Mint: dark wallpaper, logo-only menu button, time-only clock, two-column start menu. Ubuntu (Yaru): top bar with the active app name, dock with Trash, Settings → Appearance (Light/Dark, 10 accent colours, dock Left/Bottom/Right; default Dark + Red + Bottom like the reference), Nautilus-style Files (icon view, breadcrumb path bar, Ctrl+L)
 - Icons: the real CyberPatriot logo (`assets/cyberpatriot-logo.png`) is used for the README, Scoring Report and Forensics Question files
@@ -66,7 +111,7 @@ Both images share the same engine, shell, apps and scoring; the distro differenc
 2. Add Playwright end-to-end tests to `tests/` (currently ad hoc scripts) and unit tests for more shell commands (`ps`, `ufw`, `apt` output formats).
 3. More task types from previous years if the written list arrives (the photo's task types are done). Fidelity: `ps`/`ss`/`netstat` column layouts are approximations; some catalog versions are Jammy/Ubuntu-mixed; more man pages; `tar`/`zip`.
 4. More scenarios (Mint round 2, harder variants; scoring "realistic" mode tuning).
-5. Windows image (needs a new shell and registry/ACL model; see `docs/adding-an-os.md`). Ubuntu polish: GNOME lock screen, more Ubuntu-only tasks (snap, unattended-upgrades, AppArmor).
+5. Windows polish: NTFS ACLs (icacls), Group Policy editor, Event Viewer content, more Edge/Firefox tasks. Ubuntu polish: GNOME lock screen, more Ubuntu-only tasks (snap, unattended-upgrades, AppArmor).
 
 Known quirk: browsers may capture Ctrl+W / Ctrl+T in nano; use the clickable footer or F2/F3/F6.
 

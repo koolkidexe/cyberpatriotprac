@@ -147,7 +147,7 @@ export class Desktop {
       h('option', { value: 'instant', selected: eng.mode === 'instant' }, 'Instant (~1 s)'), h('option', { value: 'realistic', selected: eng.mode === 'realistic' }, 'Realistic (60 s)'));
     const snd = h('input', { type: 'checkbox', checked: env.ui.soundOn, onchange: () => { env.ui.soundOn = snd.checked; if (!env.ui.soundOn) env.ui.stopSounds(); env.settings.sound = snd.checked; env.saveSettings(); } });
     this.showPopup(null, [h('h4', null, 'CyberPatriot Simulator'),
-      row('Scoring updates', sel), row('Sounds', snd),
+      row('Scoring updates', sel), row('Report check names', h('select', { class: 'in', title: 'Competition reports since 2025 say "Application update check passed" / "Unwanted software check passed" instead of naming the program', onchange: (e) => { env.settings.reportNames = e.target.value; env.saveSettings(); } }, h('option', { value: 'detailed', selected: env.settings.reportNames !== 'generic' }, 'Detailed (training)'), h('option', { value: 'generic', selected: env.settings.reportNames === 'generic' }, 'Generic (competition)'))), row('Sounds', snd),
       row('Hint', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.hint(); } }, 'Show hint')),
       row('Score report', h('button', { class: 'btn', onclick: () => { this.closePopup(); env.openApp(env.browser || 'chromium', { args: ['file:///opt/CyberPatriot/ScoringReport.html'] }); } }, 'Open')),
       row('Operating system', h('button', { class: 'btn', title: 'Switch between Linux Mint and Ubuntu', onclick: () => { this.closePopup(); this.osPopup(); } }, 'Switch OS…')),

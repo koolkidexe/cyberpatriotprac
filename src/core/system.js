@@ -125,6 +125,8 @@ export class System {
       sysctl: this.sysctl,
       respawn: this.respawn,
       misc: this.misc,
+      os: this.os,
+      win: this.win,
       vfs: this.vfs.toJSON(),
     };
   }
@@ -142,6 +144,8 @@ export class System {
     s.ufw = snap.ufw;
     s.sysctl = snap.sysctl;
     s.respawn = snap.respawn;
+    if (snap.os) s.os = snap.os;
+    if (snap.win) s.win = snap.win;
     return s;
   }
 }

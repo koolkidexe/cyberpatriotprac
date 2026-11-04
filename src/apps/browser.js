@@ -17,14 +17,18 @@ const errDoc = (title, body, dark) => `<!doctype html><meta charset=utf-8><style
 export function open(env, opts = {}) {
   const sys = env.sys;
   const isFF = opts.app === 'firefox';
-  const brand = isFF ? 'Mozilla Firefox' : 'Chromium';
-  const bicon = isFF ? 'firefox' : 'chromium';
+  const isWin = env.os === 'windows';
+  const brand = isFF ? 'Mozilla Firefox' : isWin ? 'Google Chrome' : 'Chromium';
+  const bicon = isFF ? 'firefox' : isWin ? 'w-chrome' : 'chromium';
+  const dlKey = isFF ? 'firefox' : 'chromium';
+  const CPD = isWin ? 'file:///C:/CyberPatriot' : 'file:///opt/CyberPatriot';
+  const REPORT = isWin ? '/CyberPatriot/ScoringReport.html' : '/opt/CyberPatriot/ScoringReport.html';
   const user = opts.user || env.user;
-  const cred = user === 'root' ? { name: 'root', uid: 0, gid: 0, gids: [0] } : users.credFor(sys, user);
+  const cred = user === 'root' || isWin ? { name: 'root', uid: 0, gid: 0, gids: [0] } : users.credFor(sys, user);
   const fs = new FsView(sys.vfs, cred);
   const state = {};
   env._downloads = env._downloads || { chromium: [], firefox: [] };
-  const downloads = env._downloads[bicon];
+  const downloads = env._downloads[dlKey];
   const darkPref = () => env.settings.chromiumMode || 'Dark';
   const isDark = () => (isFF ? document.body.classList.contains('ub-dark') : darkPref() !== 'Light');
   const tabs = [];
@@ -44,15 +48,19 @@ export function open(env, opts = {}) {
   const bReload = tb('⟳', 'Reload this page', () => cur && load(cur, { nav: true }));
   const bHome = tb('⌂', 'Open the home page', () => nav(homeUrl()));
   const dlBtn = tb('⤓', 'Downloads', (e) => downloadsPanel(e.currentTarget));
-  const menuBtn = tb(isFF ? '≡' : '⋮', isFF ? 'Open application menu' : 'Customise and control Chromium', (e) => appMenu(e.currentTarget));
+  const menuBtn = tb(isFF ? '≡' : '⋮', isFF ? 'Open application menu' : `Customise and control ${brand}`, (e) => appMenu(e.currentTarget));
   const omni = h('div', { class: 'bx-omni' }, siteInfo, url, popBadge, star);
-  const toolbar = h('div', { class: 'bx-toolbar' }, bBack, bFwd, bReload, bHome, omni, dlBtn, menuBtn);
+  // Windows Chrome shows an "Update" pill at the top right while an update is pending
+  const chromeProg = () => (isWin ? sys.win.programs.find((p) => p.id === 'Google.Chrome') : null);
+  const updPill = isWin ? h('button', { class: 'bx-upd', title: 'Chrome is out of date. Update Chrome (opens About Chrome)', onclick: () => newTab('chrome://settings/help') }, 'Update') : null;
+  const syncPill = () => { if (updPill) { const p = chromeProg(); updPill.style.display = p && p.latest && p.version !== p.latest ? '' : 'none'; } };
+  const toolbar = h('div', { class: 'bx-toolbar' }, bBack, bFwd, bReload, bHome, omni, dlBtn, updPill, menuBtn);
   const bookmarks = h('div', { class: 'bx-bookmarks' });
   const infobar = h('div', { class: 'bx-infobar', style: { display: 'none' } });
   const stage = h('div', { class: 'bx-stage' });
   const shelf = h('div', { class: 'bx-shelf', style: { display: 'none' } });
   const root = h('div', { class: `bx ${isFF ? 'bx-ff' : 'bx-cr'}` }, strip, toolbar, bookmarks, infobar, stage, shelf);
-  const win = env.wm.open({ title: brand, icon: bicon, width: opts.popup ? 560 : 1000, height: opts.popup ? 420 : 660, appId: bicon, content: root, frameless: true, cls: 'bx-win', minW: 420, minH: 260 });
+  const win = env.wm.open({ title: brand, icon: bicon, width: opts.popup ? 560 : 1000, height: opts.popup ? 420 : 660, appId: isWin ? 'chrome' : bicon, content: root, frameless: true, cls: 'bx-win', minW: 420, minH: 260 });
   strip.append(win.controls());
   win.makeDraggable(strip);
   const unsub = env.engine.on('evaluated', () => {
@@ -82,11 +90,13 @@ export function open(env, opts = {}) {
     if (/^about:/.test(s)) return isFF ? s : s.replace(/^about:/, 'chrome://');
     if (/^(chrome|about|file|https?):/.test(s)) return isFF ? s.replace(/^chrome:\/\//, 'about:') : s;
     if (s.startsWith('/')) return 'file://' + s;
+    if (isWin && /^[a-z]:\\/i.test(s)) return 'file:///' + s.replace(/\\/g, '/');
     if (/^[\w.-]+\.[a-z]{2,}(:\d+)?(\/.*)?$/i.test(s)) return (/\.(example|test)\b/.test(s) ? 'http://' : 'https://') + s;
-    return 'https://duckduckgo.com/?q=' + encodeURIComponent(s);
+    return 'https://www.google.com/search?igu=1&q=' + encodeURIComponent(s); // igu=1: Google's embeddable results page
   }
   const ctxFor = (t) => ({
     env, sys, user, io: fs, state, brand, nav, refresh: () => load(t, { soft: true }), downloads: () => downloads,
+    relaunch: () => { win.close(); env.openApp(opts.app || 'chrome', {}); },
     darkPref, setDark: (m) => { env.settings.chromiumMode = m; env.saveSettings?.(); applyChrome(); load(t, { soft: true }); },
   });
   const popupsAllowed = (u) => BP.popupsAllowed(sys, user, bicon, u);
@@ -116,9 +126,9 @@ export function open(env, opts = {}) {
     return { title: u, html: errDoc('This site can’t be reached', `<p class="ico">☹</p>{T}<p>The webpage at <b>${esc(u)}</b> might be temporarily down or it may have moved permanently to a new web address.</p><p><code>ERR_INVALID_URL</code></p>`, isDark()) };
   }
   function newTabPage() {
-    const tiles = [['Scenario README', 'file:///opt/CyberPatriot/README.html', 'cyberpatriot'], ['Scoring Report', 'file:///opt/CyberPatriot/ScoringReport.html', 'score'], ['Practice sites', START_PAGE, 'info'],
+    const tiles = [['Scenario README', `${CPD}/README.html`, 'cyberpatriot'], ['Scoring Report', `${CPD}/ScoringReport.html`, 'score'], ['Practice sites', START_PAGE, 'info'],
       ['Prize winner', 'http://www.prize-winner.example/', 'warn'], ['Pop-up test', 'http://popuptest.example/', 'app'], ['Free games', 'http://free-games.example/', 'error']];
-    const q = h('input', { class: 'bx-ntp-q', placeholder: isFF ? 'Search with DuckDuckGo or enter address' : 'Search DuckDuckGo or type a URL', title: 'Search or type an address', onkeydown: (e) => { if (e.key === 'Enter') nav(q.value.trim()); } });
+    const q = h('input', { class: 'bx-ntp-q', placeholder: isFF ? 'Search with Google or enter address' : 'Search Google or type a URL', title: 'Search or type an address', onkeydown: (e) => { if (e.key === 'Enter') nav(q.value.trim()); } });
     setTimeout(() => q.focus(), 0);
     return h('div', { class: 'bx-ntp' }, h('div', { class: 'bx-ntp-logo' }, icon(bicon, 64)), q,
       h('div', { class: 'bx-ntp-tiles' }, tiles.map(([n, u, ic]) => h('div', { class: 'bx-tile', title: u, onclick: () => nav(u) }, h('div', { class: 'bx-tile-i' }, icon(ic, 28)), h('div', null, n)))),
@@ -144,8 +154,8 @@ export function open(env, opts = {}) {
     if (/^(chrome|about):/.test(u)) { t.internal = true; return internalPage(t, u); }
     const m = /^file:\/\/(\/.*)$/.exec(u);
     if (m) {
-      const p = decodeURIComponent(m[1]);
-      if (p === '/opt/CyberPatriot/ScoringReport.html') { t.live = true; return { title: 'CCS Scoring Report', html: reportHtml(env.engine.report(), { mode: env.settings.mode, title: `CyberPatriot ${env.scenario.title}`, imageName: env.os === 'ubuntu' ? 'Ubuntu 22' : 'Mint 21' }) }; }
+      const p = decodeURIComponent(m[1]).replace(/^\/[A-Za-z]:(?=\/|$)/, '') || '/';
+      if (p.toLowerCase() === REPORT.toLowerCase()) { t.live = true; return { title: 'CCS Scoring Report', html: reportHtml(env.engine.report(), { names: env.settings.reportNames || 'detailed', mode: env.settings.mode, title: `CyberPatriot ${env.scenario.title}`, imageName: env.os === 'ubuntu' ? 'Ubuntu 22' : isWin ? 'Windows 11' : 'Mint 21' }) }; }
       try {
         if (fs.isDir(p)) { const names = fs.readdir(p).sort(); return { title: `Index of ${p}`, html: errDoc(`Index of ${p}`, `{T}<ul>${p !== '/' ? `<li><a href="file://${esc(p.replace(/\/[^/]+\/?$/, '') || '/')}">[parent directory]</a></li>` : ''}${names.map((n) => `<li><a href="file://${esc((p.endsWith('/') ? p : p + '/') + n)}">${esc(n)}</a></li>`).join('')}</ul>`, isDark()) }; }
         const data = fs.readFile(p);
@@ -158,13 +168,39 @@ export function open(env, opts = {}) {
       }
     }
     const site = siteFor(u);
+    // Real websites (anything the simulated web does not know) load live in an iframe, over https.
+    if (site?.missing && /^https?:\/\//i.test(u)) return { title: site.host, live: u.replace(/^http:\/\//i, 'https://'), host: site.host };
     if (!site || site.missing) {
       const host = site?.host || u;
       if (isFF) return { title: 'Server Not Found', html: errDoc('Hmm. We’re having trouble finding that site.', `{T}<p>We can’t connect to the server at <b>${esc(host)}</b>.</p><ul><li>This simulated computer has no internet access. Open the practice sites from the New Tab page.</li><li>Check the address for typing errors.</li></ul>`, isDark()) };
       return { title: host, html: errDoc('This site can’t be reached', `<p class="ico">☹</p>{T}<p>Check if there is a typo in <b>${esc(host)}</b>.</p><p>This simulated computer has no internet access; open the practice sites from the New Tab page.</p><p><code>ERR_NAME_NOT_RESOLVED</code></p>`, isDark()) };
     }
     if (site.threat && threatBlocked(site.threat) && !t.bypass.has(site.host)) { t.internal = true; t.threatened = true; return { title: isFF ? 'Deceptive site ahead' : 'Security error', view: interstitial(t, u, site) }; }
+    if (site.tool === 'otp') return { title: site.title, view: otpTool() };
     return { title: site.title, html: site.html(site.path), site };
+  }
+  /** One-time pad tool: XOR a message/ciphertext with a key. Hex is accepted for the key and the ciphertext. */
+  function otpTool() {
+    const mode = h('select', { title: 'Conversion method' }, h('option', null, 'Decrypt'), h('option', null, 'Encrypt'));
+    const key = h('textarea', { rows: 3, placeholder: 'One-time pad (hex), e.g. 3fa1…', title: 'One-time pad key in hexadecimal' });
+    const msg = h('textarea', { rows: 3, placeholder: 'Ciphertext (hex) to decrypt, or plain text to encrypt', title: 'Message or ciphertext' });
+    const out = h('textarea', { rows: 3, readOnly: true, title: 'Result' });
+    const err = h('div', { style: { color: '#c00', minHeight: '18px' } });
+    const hexBytes = (x) => { const c = x.replace(/[^0-9a-f]/gi, ''); if (c.length % 2) throw new Error('Hex input must have an even number of digits.'); return c.match(/../g)?.map((b) => parseInt(b, 16)) || []; };
+    const go = () => {
+      err.textContent = '';
+      try {
+        const k = hexBytes(key.value);
+        if (mode.value === 'Decrypt') { const m = hexBytes(msg.value); if (k.length < m.length) throw new Error('The one-time pad must be at least as long as the ciphertext.'); out.value = String.fromCharCode(...m.map((b, i) => b ^ k[i])); }
+        else { const m = Array.from(msg.value, (c) => c.charCodeAt(0) & 255); if (k.length < m.length) throw new Error('The one-time pad must be at least as long as the message.'); out.value = m.map((b, i) => (b ^ k[i]).toString(16).padStart(2, '0')).join(''); }
+      } catch (e) { err.textContent = e.message; }
+    };
+    const row = (l, el) => h('div', { style: { margin: '10px 0' } }, h('div', { style: { fontWeight: 600, marginBottom: '4px' } }, l), el);
+    for (const el of [key, msg, out]) Object.assign(el.style, { width: '100%', font: '13px Consolas, monospace', padding: '6px', boxSizing: 'border-box' });
+    return h('div', { style: { flex: 1, overflow: 'auto', background: '#fff', color: '#202124', font: '14px "Segoe UI", Arial, sans-serif' } }, h('div', { style: { maxWidth: '760px', margin: '0 auto', padding: '24px 30px' } },
+      h('h1', { style: { fontWeight: 500, fontSize: '24px' } }, 'One-time pad encryption and decryption'), h('p', null, 'Each byte of the message is combined with the matching byte of the pad using XOR. The same pad decrypts the message again.'),
+      row('Conversion method', mode), row('One-time pad (hexadecimal)', key), row('Message / ciphertext', msg), h('button', { style: { padding: '8px 22px', background: '#1a73e8', color: '#fff', border: 0, borderRadius: '6px', font: 'inherit', cursor: 'pointer' }, onclick: go }, 'Convert'), err, row('Result', out),
+      h('div', { style: { fontSize: '12px', color: '#777', marginTop: '30px', borderTop: '1px solid #ddd', paddingTop: '10px' } }, 'Training site inside the CyberPatriot simulator. It is not a real website.')));
   }
 
   // ------------------------------------------------------------ loading, tabs
@@ -173,7 +209,15 @@ export function open(env, opts = {}) {
     t.sig = prefSig();
     t.title = pg.title;
     clear(t.box);
-    if (pg.view) { t.view = pg.view; t.box.append(pg.view); t.iframe = null; } else {
+    if (pg.live) {
+      const sandbox = 'allow-scripts allow-same-origin allow-forms allow-downloads' + (popupsAllowed(t.hist[t.pos]) ? ' allow-popups allow-popups-to-escape-sandbox' : '');
+      const iframe = h('iframe', { class: 'bx-frame', src: pg.live, sandbox, referrerpolicy: 'no-referrer', allow: 'clipboard-read; clipboard-write', title: pg.host });
+      const bar = h('div', { class: 'bx-livebar', title: 'This is the real website, shown inside the simulator' },
+        h('span', null, '🌐 Live website: ', h('b', null, pg.host), '. If the page stays blank, this site does not allow being shown inside another page.'),
+        h('a', { href: pg.live, target: '_blank', rel: 'noopener noreferrer', title: 'Open this site in a real browser tab' }, 'Open in a real tab ↗'),
+        h('button', { title: 'Hide this bar', onclick: () => bar.remove() }, '✕'));
+      t.view = h('div', { class: 'bx-live' }, bar, iframe); t.iframe = null; t.box.append(t.view);
+    } else if (pg.view) { t.view = pg.view; t.box.append(pg.view); t.iframe = null; } else {
       const iframe = h('iframe', { class: 'bx-frame', sandbox: 'allow-same-origin' });
       iframe.addEventListener('load', () => hookFrame(t, iframe));
       iframe.srcdoc = pg.html; t.iframe = iframe; t.view = iframe; t.box.append(iframe);
@@ -202,11 +246,12 @@ export function open(env, opts = {}) {
     d.addEventListener('submit', (e) => { e.preventDefault(); env.ui.toast({ title: 'Simulated page', message: 'Forms do not send anything in the simulator.', kind: 'info' }); });
   }
   function showCur() {
+    syncPill();
     const t = cur;
     for (const x of tabs) x.box.style.display = x === t ? '' : 'none';
     const u = t.hist[t.pos];
     url.value = /^(chrome:\/\/newtab|about:home|about:newtab)$/.test(u) ? '' : u;
-    url.placeholder = isFF ? 'Search with DuckDuckGo or enter address' : 'Search DuckDuckGo or type a URL';
+    url.placeholder = isFF ? 'Search with Google or enter address' : 'Search Google or type a URL';
     win.setTitle(`${t.title} ${isFF ? '—' : '-'} ${brand}`);
     bBack.disabled = t.pos <= 0; bFwd.disabled = t.pos >= t.hist.length - 1;
     const site = siteFor(u);
@@ -323,11 +368,11 @@ export function open(env, opts = {}) {
       { label: 'New tab', action: () => newTab(homeUrl()) },
       { label: 'New window', action: () => open(env, { ...opts, args: [] }) },
       { label: 'Downloads', action: () => newTab(isFF ? 'about:downloads' : 'chrome://downloads') },
-      { label: 'Scenario README', action: () => newTab('file:///opt/CyberPatriot/README.html') },
-      { label: 'Scoring Report', action: () => newTab('file:///opt/CyberPatriot/ScoringReport.html') },
+      { label: 'Scenario README', action: () => newTab(`${CPD}/README.html`) },
+      { label: 'Scoring Report', action: () => newTab(`${CPD}/ScoringReport.html`) },
       { label: 'Practice sites', action: () => newTab(START_PAGE) },
       { label: 'Settings', action: () => newTab(st) },
-      ...(isFF ? [{ label: 'Advanced preferences (about:config)', action: () => newTab('about:config') }, { label: 'Policies (about:policies)', action: () => newTab('about:policies') }] : [{ label: 'Policies (chrome://policy)', action: () => newTab('chrome://policy') }, { label: 'About Chromium', action: () => newTab('chrome://settings/help') }]),
+      ...(isFF ? [{ label: 'Advanced preferences (about:config)', action: () => newTab('about:config') }, { label: 'Policies (about:policies)', action: () => newTab('about:policies') }] : [{ label: 'Policies (chrome://policy)', action: () => newTab('chrome://policy') }, { label: isWin ? 'Help › About Google Chrome' : 'About Chromium', action: () => newTab('chrome://settings/help') }]),
       { label: isFF ? 'Quit' : 'Exit', action: () => win.close() },
     ]);
   }
@@ -346,7 +391,7 @@ export function open(env, opts = {}) {
     clear(bookmarks);
     const showBar = !opts.popup && (isFF ? /about:(home|newtab)/.test(cur?.hist[cur.pos] || '') : !!BP.chromiumGet(sys, user, 'bookmark_bar.show_on_all_tabs').value);
     bookmarks.style.display = showBar ? '' : 'none';
-    const marks = [{ name: 'README', url: 'file:///opt/CyberPatriot/README.html' }, { name: 'Scoring Report', url: 'file:///opt/CyberPatriot/ScoringReport.html' }, { name: 'Practice sites', url: START_PAGE }, ...bookmarkList()];
+    const marks = [{ name: 'README', url: `${CPD}/README.html` }, { name: 'Scoring Report', url: `${CPD}/ScoringReport.html` }, { name: 'Practice sites', url: START_PAGE }, ...bookmarkList()];
     for (const b of marks) bookmarks.append(h('button', { class: 'bx-bm', title: b.url, onclick: () => nav(b.url) }, icon(/CyberPatriot/.test(b.url) ? 'cyberpatriot' : 'net', 14), b.name));
     if (opts.popup) { toolbar.classList.add('bx-popup'); newTabBtn.style.display = 'none'; }
   }

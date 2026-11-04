@@ -4,6 +4,7 @@ import { h } from './dom.js';
 export const OS_LIST = [
   { id: 'mint', name: 'Linux Mint 21.3', sub: 'Cinnamon desktop · Mint Practice Round 1', color: '#8fa876' },
   { id: 'ubuntu', name: 'Ubuntu 22.04 LTS', sub: 'GNOME desktop · Ubuntu Practice Round 1', color: '#e95420' },
+  { id: 'windows', name: 'Windows 11 Pro', sub: '23H2 · Windows Practice Round 1', color: '#3b8ed8' },
 ];
 
 /** Popup content: one row per image, current one marked. Progress is saved separately per image. */

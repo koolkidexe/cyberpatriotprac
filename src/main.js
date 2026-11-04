@@ -21,6 +21,9 @@ import { loadApp } from './apps/registry.js';
 import { runExec } from './apps/launch.js';
 import { parseDesktop } from './ui/dom.js';
 import { showLock, showGreeter } from './ui/greeters.js';
+import windowsRound1, { makeWinRound } from './scenarios/win-deck/index.js';
+import { WinDesktop, showWinLock, showWinSignIn } from './ui/win-shell.js';
+import * as WS from './win/state.js';
 
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -29,7 +32,8 @@ const store = {
 };
 
 
-const SCENARIOS = { mint: mintScenario, ubuntu: ubuntuScenario };
+const SCENARIOS = { mint: mintScenario, ubuntu: ubuntuScenario, windows: windowsRound1 };
+const dealRound = (os, seed) => (os === 'windows' ? makeWinRound(seed) : makeRound(os, seed));
 const OS_KEY = 'cpsim.os';
 
 function chooseOs() {
@@ -44,7 +48,8 @@ function chooseOs() {
       h('div', { style: { color: '#fff', fontSize: '26px', fontWeight: 300 } }, 'CyberPatriot Simulator'), h('div', { style: { color: '#9aa0a4' } }, 'Choose an image to practice on'),
       h('div', { style: { display: 'flex', gap: '24px' } },
         card('mint', 'Linux Mint 21', 'Cinnamon desktop · 100-point round', '#8fa876', '🌿'),
-        card('ubuntu', 'Ubuntu 22.04', 'GNOME desktop · 100-point round', '#e95420', '🟠')),
+        card('ubuntu', 'Ubuntu 22.04', 'GNOME desktop · 100-point round', '#e95420', '🟠'),
+        card('windows', 'Windows 11 Pro', 'PowerShell, MMC consoles · 100-point round', '#3b8ed8', '🔷')),
       h('div', { style: { color: '#6c7378', fontSize: '12px' } }, 'You can switch later from the simulator menu. Progress is saved separately for each image.'));
     document.getElementById('screen').append(chooser);
     boot?.classList.add('hide');
@@ -55,19 +60,21 @@ const OS = await chooseOs();
 const ROUND_KEY = `cpsim.round.${OS}`;
 const round = store.get(ROUND_KEY) || { kind: 'fixed' };
 let scenario = SCENARIOS[OS];
-if (round.kind === 'deck') { try { scenario = makeRound(OS, round.seed); } catch (e) { console.error('could not deal round', e); store.del(ROUND_KEY); } }
+if (round.kind === 'deck') { try { scenario = dealRound(OS, round.seed); } catch (e) { console.error('could not deal round', e); store.del(ROUND_KEY); } }
 // A save only fits the exact set of checks it was made with. Restoring a save into a different (e.g. updated) set of
 // checks is what handed out free points on load, so a mismatch starts a fresh image instead.
 const FINGERPRINT = `${scenario.id}|v${scenario.version || 1}|${scenario.vulns.map((v) => `${v.id}:${v.points}`).join(',')}|${scenario.penalties.map((p) => p.id).join(',')}`;
 document.body.classList.add(`os-${OS}`);
 setIconTheme(OS === 'ubuntu' ? 'yaru' : 'mint');
+const WIN = OS === 'windows';
 initTooltips();
 document.title = `CyberPatriot Simulator — ${scenario.imageName}`;
 const bootLabel = document.querySelector('#boot > div'); if (bootLabel) bootLabel.textContent = scenario.imageName;
 const SAVE_KEY = `cpsim.save.v2.${OS}`;
 store.del(`cpsim.save.v1.${SCENARIOS[OS].id}`); // saves from before versioning are not trusted
 const SET_KEY = 'cpsim.settings.v1';
-const BROWSER = OS === 'ubuntu' ? 'firefox' : 'chromium';
+const BROWSER = OS === 'ubuntu' ? 'firefox' : WIN ? 'chrome' : 'chromium';
+const README_URL = WIN ? 'file:///C:/CyberPatriot/README.html' : 'file:///opt/CyberPatriot/README.html';
 
 const bootMsg = (t) => { const el = document.getElementById('boot-msg'); if (el) el.textContent = t; };
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -83,7 +90,7 @@ async function main() {
   let staleSave = false;
   if (saved && saved.sys && saved.fp !== FINGERPRINT) { staleSave = true; store.del(SAVE_KEY); }
   else if (saved && saved.sys) {
-    try { sys = System.restore(saved.sys); mountVirtual(sys); engineState = saved.engine; restored = true; } catch (e) { console.error('restore failed', e); sys = null; }
+    try { sys = System.restore(saved.sys); if (!WIN) mountVirtual(sys); engineState = saved.engine; restored = true; } catch (e) { console.error('restore failed', e); sys = null; }
   }
   if (!sys) sys = scenario.createMachine({});
   sys.dirty = false;
@@ -98,18 +105,19 @@ async function main() {
   engine.setMode(settings.mode);
 
   const env = {
-    sys, engine, scenario, wm, ui, settings, user: scenario.user, desktop: null, params, os: OS, browser: BROWSER,
+    sys, engine, scenario, wm, ui, settings, user: scenario.user, desktop: null, params, os: OS, browser: BROWSER, readmeUrl: README_URL,
     /** Reboot into another image (progress is saved per image). With no argument: show the chooser. */
     switchOs(id) {
       try { env.save?.(); } catch { /* ignore */ }
       if (SCENARIOS[id]) { store.set(OS_KEY, id); location.href = `${location.pathname}?os=${id}`; } else { store.del(OS_KEY); location.href = location.pathname; }
     },
     saveSettings() { store.set(SET_KEY, settings); },
-    userFs() { return new FsView(sys.vfs, users.credFor(sys, env.user)); },
+    userFs() { return new FsView(sys.vfs, WIN ? { name: env.user, uid: 0, gid: 0, gids: [0] } : users.credFor(sys, env.user)); },
     async openApp(id, opts = {}) {
-      try { const open = await loadApp(id); return open(env, { ...opts, app: id }); } catch (e) { console.error(e); ui.alert({ title: 'Error', heading: 'The application failed to start', message: String(e.message || e), icon: 'error' }); return null; }
+      try { const open = await loadApp(id, OS); return open(env, { ...opts, app: id }); } catch (e) { console.error(e); ui.alert({ title: 'Error', heading: 'The application failed to start', message: String(e.message || e), icon: 'error' }); return null; }
     },
     openPath(path, opts = {}) {
+      if (WIN) return winOpenPath(env, path, opts);
       const fs = env.userFs();
       try {
         if (fs.isDir(path)) return env.openApp('nemo', { path });
@@ -133,6 +141,7 @@ async function main() {
         if (!ok) return;
       }
       store.set(ROUND_KEY, { kind: 'deck', seed: newSeed() });
+      store.del(`cpsim.welcomed.${OS}`);
       store.del(SAVE_KEY); location.href = `${location.pathname}?os=${OS}&fresh=1`;
     },
     async reset() {
@@ -140,8 +149,8 @@ async function main() {
       if (!ok) return;
       store.del(SAVE_KEY); location.href = `${location.pathname}?os=${OS}&fresh=1`;
     },
-    lock() { showLock(env); },
-    logout() { showGreeter(env, { onLogin: (name) => { env.user = name; env.desktop.renderIcons(); env.desktop.menuDirty = true; startAutostart(env); } }); },
+    lock() { if (WIN) return showWinLock(env); showLock(env); },
+    logout() { if (WIN) return showWinSignIn(env, { onLogin: (name) => { env.user = name; env.desktop.renderIcons(); } }); showGreeter(env, { onLogin: (name) => { env.user = name; env.desktop.renderIcons(); env.desktop.menuDirty = true; startAutostart(env); } }); },
     async power(kind) {
       const label = kind === 'reboot' ? 'Restart' : 'Shut down';
       if (kind === 'poweroff') {
@@ -149,11 +158,12 @@ async function main() {
         if (!ok) return;
         save(); document.body.innerHTML = '<div style="color:#bbb;font:16px sans-serif;display:flex;height:100vh;align-items:center;justify-content:center;background:#000">System powered off. Reload this page to start it again.</div>'; return;
       }
+      if (WIN) { showBoot(env, 'Restarting', () => { winReboot(sys); engine.evaluate(); env.wm.wins.slice().forEach((w) => w.close()); env.desktop.renderIcons(); }); return; }
       showBoot(env, 'Restarting…', () => { rebootSystem(sys); engine.evaluate(); startAutostart(env); env.wm.wins.slice().forEach((w) => w.close()); env.desktop.renderIcons(); });
     },
   };
   window.cpsim = env;
-  env.desktop = OS === 'ubuntu' ? new UbuntuDesktop(env) : new Desktop(env);
+  env.desktop = WIN ? new WinDesktop(env) : OS === 'ubuntu' ? new UbuntuDesktop(env) : new Desktop(env);
 
   // ---- scoring notifications
   engine.on('score', ({ gained, lost, penalized, cleared }) => {
@@ -169,7 +179,8 @@ async function main() {
   engine.start();
 
   // ---- background machine behaviour
-  setInterval(() => { if (sys.runCronTick(cronEntries(sys))) engine.evaluate(); }, 20000);
+  if (WIN) setInterval(() => { if (WS.tick(sys)) engine.evaluate(); }, 8000);
+  else setInterval(() => { if (sys.runCronTick(cronEntries(sys))) engine.evaluate(); }, 20000);
   setInterval(() => save(), 4000);
   window.addEventListener('beforeunload', () => save());
   function save() {
@@ -203,6 +214,7 @@ function roundComplete(env) {
 }
 
 function startAutostart(env) {
+  if (env.os === 'windows') return;
   for (const l of autostartListeners(env.sys, env.user)) {
     setTimeout(() => {
       if (!env.sys.vfs.exists(l.source)) return;
@@ -225,12 +237,50 @@ function showWelcome(env) {
     h('div', { class: 'dt' }, 'Welcome'),
     h('div', { class: 'db' }, icon('shield', 56), h('div', { class: 'txt' },
       h('h3', null, `${env.scenario.title} — ${env.scenario.imageName}`),
-      h('p', null, 'This is a practice simulator for CyberPatriot-style Linux hardening. Everything runs in your browser: the desktop, the terminal and the scoring.'),
+      h('p', null, `This is a practice simulator for CyberPatriot-style ${env.os === 'windows' ? 'Windows' : 'Linux'} hardening. Everything runs in your browser: the desktop, the ${env.os === 'windows' ? 'PowerShell terminal, the management consoles' : 'terminal'} and the scoring.`),
       h('p', null, `Start by opening the “Scenario README” on the desktop, then secure the computer. Open the “Scoring Report” to see your points. You can answer the ${env.scenario.forensics.length} Forensics Questions by editing the files on the desktop.`),
       h('p', null, h('b', null, 'Your login: '), `${env.scenario.user} / ${env.scenario.password}`),
-      h('p', { style: { fontSize: '12px', color: '#6c7378' } }, 'Progress is saved in this browser. Use the chart icon in the panel for hints, scoring speed and reset.'))),
-    h('div', { class: 'df' }, h('button', { class: 'btn primary', onclick: () => { done(true); env.openApp(BROWSER, { args: ['file:///opt/CyberPatriot/README.html'] }); } }, 'Open the README'), h('button', { class: 'btn', onclick: () => done(true) }, 'Start')),
+      env.os === 'windows' ? h('p', null, 'Most fixes need administrator rights: right-click Terminal in Start and choose “Run as administrator”, or use Computer Management and Local Security Policy.') : null,
+      h('p', { style: { fontSize: '12px', color: '#6c7378' } }, `Progress is saved in this browser. Use the chart icon in the ${env.os === 'windows' ? 'taskbar' : 'panel'} for hints, scoring speed and reset.`))),
+    h('div', { class: 'df' }, h('button', { class: 'btn primary', onclick: () => { done(true); env.openApp(BROWSER, { args: [env.readmeUrl] }); } }, 'Open the README'), h('button', { class: 'btn', onclick: () => done(true) }, 'Start')),
   ));
+}
+
+// ---- Windows: opening files from Explorer or the desktop, and restarting
+function winOpenPath(env, path, opts = {}) {
+  const { sys, ui } = env;
+  const real = WS.resolve(sys, path);
+  const name = real.split('/').pop();
+  try {
+    if (sys.vfs.isDir(real)) return env.openApp('explorer', { path: real });
+    if (!sys.vfs.exists(real)) { ui.alert({ title: 'Location is not available', heading: `${WS.toWin(real)} is not accessible.`, message: 'The system cannot find the file specified.', icon: 'w-warn' }); return null; }
+    if (/\.url$/i.test(name)) { const u = /^URL=(.*)$/m.exec(sys.vfs.readFile(real))?.[1]; return env.openApp('chrome', { args: [u || 'about:blank'] }); }
+    if (/\.lnk$/i.test(name)) {
+      const t = sys.vfs.readFile(real);
+      const target = t.replace(/^\[shortcut\]\s*/, '').trim();
+      const app = /chrome\.exe/i.test(t) ? 'chrome' : /msedge/i.test(t) ? 'chrome' : /notepad\+\+\.exe/i.test(t) ? 'notepadpp' : /wireshark\.exe/i.test(t) ? 'wireshark' : null;
+      if (app) return env.openApp(app, {});
+      const tp = WS.resolve(sys, WS.fromWin(target));
+      if (/^[a-z]:\\/i.test(target) && sys.vfs.exists(tp) && !/\.(exe|bat|cmd|msi)$/i.test(tp)) return winOpenPath(env, tp, opts);
+      if (/^[a-z]:\\/i.test(target) && !sys.vfs.exists(tp)) { ui.alert({ title: 'Problem with Shortcut', heading: `The item '${target.split('\\').pop()}' that this shortcut refers to has been changed or moved, so this shortcut will no longer work properly.`, message: target, icon: 'w-warn' }); return null; }
+      ui.alert({ title: name.replace(/\.lnk$/i, ''), heading: 'This program is not part of the simulation', message: `The shortcut points to ${t.replace(/^\[shortcut\]\s*/, '')}. Uninstall unwanted programs from Settings > Apps or with winget.`, icon: 'w-info' }); return null;
+    }
+    if (/\.(pcap|pcapng|cap)$/i.test(name)) { if (WS.listPrograms(sys).some((p) => p.id === 'WiresharkFoundation.Wireshark')) return env.openApp('wireshark', { path: real }); ui.alert({ title: name, heading: 'How do you want to open this file?', message: 'No app is installed that opens .pcap files. Wireshark opens packet captures.', icon: 'w-info' }); return null; }
+    if (/\.html?$/i.test(name)) return env.openApp('chrome', { args: ['file:///' + WS.toWin(real).replace(/\\/g, '/')] });
+    if (/\.(exe|msi|bat|cmd|ps1|sys|dll)$/i.test(name)) { ui.alert({ title: name, heading: 'Windows protected your PC', message: 'Running programs from files is not part of the simulation. Remove unwanted programs and files instead.', icon: 'w-security' }); return null; }
+    if (/\.(mp3|ogg|wav|flac|mp4|mkv|avi|png|jpe?g|gif)$/i.test(name)) { ui.alert({ title: name, heading: 'Media Player', message: `${name} would play here. Personal media files are usually prohibited on CyberPatriot images.`, icon: 'w-media' }); return null; }
+    return env.openApp(/\.(conf|cfg|xml|json|py|c|ps1|bat|cmd|js|php|ini)$/i.test(name) && WS.listPrograms(sys).some((p) => p.id === 'Notepad++.Notepad++') ? 'notepadpp' : 'notepad', { path: real, ...opts });
+  } catch (e) { ui.alert({ title: 'Error', heading: `Could not open “${name}”`, message: e.message, icon: 'w-bad' }); return null; }
+}
+function winReboot(sys) {
+  // services set to start automatically come up; stopped/disabled stay down; user programs restart from Run keys/tasks
+  for (const s of WS.listServices(sys)) {
+    for (const p of sys.processes.filter((x) => x.svc === `win:${s.name}`)) sys.killProc(p.pid);
+    if (/^Automatic/.test(s.startType)) { s.status = 'Running'; WS.spawnFor(sys, s); } else if (s.status === 'Running' && s.startType === 'Disabled') s.status = 'Stopped'; else if (s.status === 'Running') WS.spawnFor(sys, s);
+  }
+  for (const u of WS.pendingUpdates(sys)) void u;
+  WS.tick(sys);
+  sys.touch('win');
 }
 
 main().catch((e) => { console.error(e); document.getElementById('boot-msg').textContent = 'Failed to start: ' + e.message; });

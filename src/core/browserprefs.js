@@ -4,8 +4,8 @@
 import * as users from './users.js';
 
 const rd = (sys, p) => (sys.vfs.isFile(p) ? sys.vfs.readFile(p) : null);
-export const homeOf = (sys, user) => users.getUser(sys, user)?.home || `/home/${user}`;
-const owner = (sys, user) => { const u = users.getUser(sys, user); return { uid: u ? u.uid : 0, gid: u ? u.gid : 0 }; };
+export const homeOf = (sys, user) => (sys.win ? `/Users/${user}` : users.getUser(sys, user)?.home || `/home/${user}`);
+const owner = (sys, user) => { const u = sys.win ? null : users.getUser(sys, user); return { uid: u ? u.uid : 0, gid: u ? u.gid : 0 }; };
 
 /** Write a text file as `user` (creating parent directories owned by them). `io` (an FsView) enforces permissions when given. */
 export function writeUserFile(sys, user, path, data, io, mode = 0o600) {
@@ -48,7 +48,7 @@ export const displayOrigin = (key) => String(key).replace(/:(80|443)$/, '');
 export function plainOrigin(url) { try { const u = new URL(url); return `${u.protocol}//${u.host}`; } catch { return String(url); } }
 
 // ================================================================= Chromium
-export const chromiumDir = (home) => `${home}/.config/chromium/Default`;
+export const chromiumDir = (home) => (home.startsWith('/Users/') ? `${home}/AppData/Local/Google/Chrome/User Data/Default` : `${home}/.config/chromium/Default`);
 export const chromiumPrefsPath = (home) => `${chromiumDir(home)}/Preferences`;
 export const CHROMIUM_POLICY_DIRS = ['/etc/chromium/policies/managed', '/etc/chromium-browser/policies/managed'];
 
@@ -97,6 +97,9 @@ export function chromiumPolicies(sys) {
       try { Object.assign(out, JSON.parse(rd(sys, `${dir}/${n}`) || '{}')); } catch { /* invalid JSON is ignored, like Chromium does */ }
     }
   }
+  // Windows: Chrome reads its policies from the registry (Group Policy writes them here)
+  const reg = sys.win?.reg?.['hklm\\software\\policies\\google\\chrome'];
+  if (reg) for (const [k, v] of Object.entries(reg.values)) out[k] = v.type === 'REG_DWORD' ? (/(Enabled|Mode)$/.test(k) && !/Level|Setting/.test(k) ? !!v.data : v.data) : v.data;
   return out;
 }
 const POLICY_BOOL = { 'profile.password_manager_enabled': 'PasswordManagerEnabled', 'credentials_enable_service': 'PasswordManagerEnabled', 'enable_do_not_track': 'EnableDoNotTrack', 'browser.show_home_button': 'ShowHomeButton', 'bookmark_bar.show_on_all_tabs': 'BookmarkBarEnabled', 'autofill.profile_enabled': 'AutofillAddressEnabled', 'autofill.credit_card_enabled': 'AutofillCreditCardEnabled', 'download.prompt_for_download': 'PromptForDownloadLocation', 'https_only_mode_enabled': 'HttpsOnlyMode' };

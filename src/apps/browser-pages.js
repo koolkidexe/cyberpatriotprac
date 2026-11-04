@@ -133,6 +133,17 @@ export function chromeSettings(ctx, sub) {
       const ok = await ctx.env.ui.confirm({ title: 'Reset settings', heading: 'Reset settings?', message: 'This will reset your start-up page, new tab page, search engine and pinned tabs. It will also disable all extensions and clear temporary data like cookies. Your bookmarks, history and saved passwords will not be cleared.', ok: 'Reset settings' });
       if (ok) guard(ctx, () => BP.chromiumResetSettings(sys, user, io));
     } })));
+  } else if (section === 'help' && ctx.env.os === 'windows') {
+    // Windows: Chrome updates itself from this page ("Updating Chrome… Nearly up to date! Relaunch")
+    const W = ctx.env.sys.win; const prog = W.programs.find((p) => p.id === 'Google.Chrome');
+    const pending = prog && prog.latest && prog.version !== prog.latest;
+    const st = h('div', { class: 'cr-sub' });
+    const relaunch = h('button', { class: 'cr-btn', style: { display: 'none' }, title: 'Restart Chrome to finish updating', onclick: () => { prog.version = prog.latest; ctx.env.sys.touch('win'); ctx.relaunch?.(); } }, 'Relaunch');
+    main.append(head('About Chrome'), card(h('div', { class: 'cr-about' }, icon('w-chrome', 40), h('div', { style: { flex: 1 } }, h('div', { style: { fontSize: '15px' } }, 'Google Chrome'), st,
+      h('div', { class: 'cr-sub' }, `Version ${prog?.version || ''} (Official Build) (64-bit)`)), relaunch)));
+    if (!pending) st.textContent = 'Chrome is up to date';
+    else if (ctx.state.chromeUpdated) { st.textContent = 'Nearly up to date! Relaunch Chrome to finish updating.'; relaunch.style.display = ''; }
+    else { let pct = 0; st.textContent = 'Updating Chrome (0%)'; const t = setInterval(() => { pct += 25; if (!st.isConnected) { clearInterval(t); return; } st.textContent = `Updating Chrome (${pct}%)`; if (pct >= 100) { clearInterval(t); ctx.state.chromeUpdated = true; st.textContent = 'Nearly up to date! Relaunch Chrome to finish updating.'; relaunch.style.display = ''; } }, 450); }
   } else if (section === 'help') {
     const ver = pk.installedVersion(sys, 'chromium') || '';
     const upd = pk.isInstalled(sys, 'chromium') && pk.def('chromium') && ver !== pk.def('chromium').avail;
@@ -140,7 +151,7 @@ export function chromeSettings(ctx, sub) {
       h('div', { class: 'cr-sub' }, upd ? 'A newer version is available. On Linux, Chromium is updated by your package manager (Update Manager or apt).' : 'Chromium is up to date'),
       h('div', { class: 'cr-sub' }, `Version ${ver.split('-')[0]} (Official Build) built on Ubuntu 22.04, running on Linux Mint 21.3 (64-bit)`)))));
   } else {
-    const info = { search: 'Search engine used in the address bar: DuckDuckGo', defaultBrowser: 'Chromium is your default browser', languages: 'English (United States)', accessibility: 'Live caption, focus highlighting and more', performance: 'Memory Saver: off' };
+    const info = { search: 'Search engine used in the address bar: Google', defaultBrowser: 'Chromium is your default browser', languages: 'English (United States)', accessibility: 'Live caption, focus highlighting and more', performance: 'Memory Saver: off' };
     main.append(head(CR_NAV.find((n) => n[1] === section)?.[0] || 'You and Google'), card(section === 'people'
       ? [crRow('Person 1', 'Not signed in. Sync is not available in the simulator.', h('button', { class: 'cr-btn', disabled: true, title: 'Sign-in is not simulated' }, 'Turn on sync…')), crRow('Customise your Chromium profile', null, null, { arrow: true })]
       : crRow(info[section] || 'This page is not simulated.', null, null)));
@@ -152,7 +163,7 @@ export function chromeSettings(ctx, sub) {
     if (/pop|redirect/.test(t)) ctx.nav('chrome://settings/content/popups'); else if (/safe|secur|phish|danger/.test(t)) ctx.nav('chrome://settings/security');
     else if (/pass|autofill/.test(t)) ctx.nav('chrome://settings/autofill'); else if (/reset/.test(t)) ctx.nav('chrome://settings/reset'); else if (/home|theme|dark|mode|bookmark/.test(t)) ctx.nav('chrome://settings/appearance');
   } });
-  const navEl = h('div', { class: 'cr-nav' }, CR_NAV.map(([label, id, ic]) => h('div', { class: 'cr-ni' + (section === id || (id === 'privacy' && /^(security|content)/.test(sub || '')) ? ' on' : ''), title: label, onclick: () => ctx.nav(`chrome://settings/${id}`) }, icon(ic, 18), label)));
+  const navEl = h('div', { class: 'cr-nav' }, CR_NAV.map(([label0, id, ic]) => [ctx.env.os === 'windows' ? label0.replace('About Chromium', 'About Chrome') : label0, id, ic === 'chromium' && ctx.env.os === 'windows' ? 'w-chrome' : ic]).map(([label, id, ic]) => h('div', { class: 'cr-ni' + (section === id || (id === 'privacy' && /^(security|content)/.test(sub || '')) ? ' on' : ''), title: label, onclick: () => ctx.nav(`chrome://settings/${id}`) }, icon(ic, 18), label)));
   return h('div', { class: 'cr-page' }, h('div', { class: 'cr-top' }, h('div', { class: 'cr-title' }, 'Settings'), q), h('div', { class: 'cr-body' }, navEl, main));
 }
 
@@ -257,7 +268,7 @@ export function ffPreferences(ctx, cat = 'general') {
     main.append(h('h1', null, 'Home'), sec('New Windows and Tabs', h('div', { class: 'ff-line' }, h('span', null, 'Homepage and new windows'), inp, h('button', { class: 'ff-b', disabled: hp.locked, title: 'Save the homepage', onclick: () => set({ 'browser.startup.homepage': inp.value.trim() || 'about:home' }) }, 'Save')),
       h('div', { class: 'ff-line' }, h('button', { class: 'ff-b', title: 'Use the default Firefox Home page', onclick: () => set({ 'browser.startup.homepage': undefined }) }, 'Restore Defaults'))));
   } else if (cat === 'search') {
-    main.append(h('h1', null, 'Search'), sec('Default Search Engine', h('select', { class: 'ff-in', title: 'Default search engine' }, ['DuckDuckGo', 'Google', 'Bing', 'Wikipedia (en)'].map((n) => h('option', null, n)))),
+    main.append(h('h1', null, 'Search'), sec('Default Search Engine', h('select', { class: 'ff-in', title: 'Default search engine' }, ['Google', 'DuckDuckGo', 'Bing', 'Wikipedia (en)'].map((n) => h('option', null, n)))),
       sec('Search Suggestions', chk('browser.search.suggest.enabled', 'Show search suggestions')));
   } else {
     const sp = get('browser.startup.page');

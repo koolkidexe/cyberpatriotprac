@@ -12,6 +12,8 @@ ${extra}</style></head><body>${body}</body></html>`;
 const SIM_NOTE = '<div class="note">Training site inside the CyberPatriot simulator. It is not a real website.</div>';
 
 export const SITES = {
+  // one-time pad / XOR practice tool (the browser draws it; see otpTool in browser.js)
+  'otp-tools.example': { title: 'One-time pad encryption and decryption', tool: 'otp' },
   'start.cyberpatriot-sim.test': {
     title: 'Simulator start page',
     html: () => page('Simulator start page', `<div class="wrap"><h1>Browser practice sites</h1>
@@ -22,6 +24,7 @@ export const SITES = {
 <li><a href="http://account-verify.example/login">account-verify.example</a> is a fake phishing page. With Safe Browsing on, the browser shows a red warning first.</li>
 <li><a href="http://free-games.example/">free-games.example</a> offers a dangerous download. With Safe Browsing on, the download is blocked.</li>
 <li><a href="http://intranet.apex.example/">intranet.apex.example</a> is a harmless company intranet page.</li>
+<li><a href="https://otp-tools.example/">otp-tools.example</a> is a one-time pad (XOR) encryption and decryption tool for forensics questions.</li>
 </ul>${SIM_NOTE}</div>`),
   },
   'www.prize-winner.example': {
