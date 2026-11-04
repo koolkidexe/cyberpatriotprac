@@ -121,6 +121,12 @@
 .bx.dark .bx-stage { background: #202124; }
 .bx-tab-box { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .bx-frame { flex: 1; border: 0; background: #fff; min-height: 0; width: 100%; }
+.bx-live { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.bx-livebar { flex: none; display: flex; align-items: center; gap: 12px; padding: 5px 10px; font-size: 12px; background: #e8f0fe; color: #174ea6; border-bottom: 1px solid #c6dafc; }
+.bx-livebar span { flex: 1; }
+.bx-livebar a { color: #1a73e8; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.bx-livebar button { border: 0; background: transparent; color: #174ea6; cursor: pointer; }
+.bx.dark .bx-livebar { background: #28303d; color: #c3d6f5; border-color: #3a4558; }
 .bx-shelf { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bx-tool); border-top: 1px solid var(--bx-line); flex: none; }
 .bx-chip { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid var(--bx-line); border-radius: 8px; max-width: 280px; font-size: 12px; }
 .bx-chip-n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px; }
@@ -386,3 +392,6 @@
 .gsp-btns { display: flex; flex-direction: column; gap: 6px; width: 90px; }
 .gsp-foot { display: flex; justify-content: flex-end; padding: 10px 14px; }
 .listbox .li > input[type=checkbox] { flex: none; }
+
+.bx-upd { height: 28px; padding: 0 14px; border-radius: 14px; border: 0; background: #d93025; color: #fff; font: 600 12px "Segoe UI", system-ui, sans-serif; margin: 0 4px; cursor: pointer; }
+.bx-upd:hover { background: #c5221f; }

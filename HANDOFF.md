@@ -163,7 +163,23 @@ The Oct 27-28 round is done. Note: the zip the user uploaded on Oct 29 predated 
 - Mint uses Chromium only: Firefox is not installed on the Mint image (catalog `over.mint`), panel launcher/favorites/xdg-open use Chromium. Panel order: menu, Chromium, Show Desktop, Files, Terminal.
 - Scoring report now looks like the real CCS report (logo, round title + image, start/running times, connection status lines).
 
+## Nov 4 round: Windows 11
+- Target chosen with the user: Windows 11 Pro 23H2 matching their screenshots (centred taskbar, Search, Chrome). Inspiration: the user's Windows scoring-report screenshots (see README "Windows 11 image" for the task list).
+- Model `src/win/state.js` + image `src/win/image.js` (snapshot includes `os` and `win`). Native tools `src/win/native.js`. PowerShell/cmd `src/win/shell.js` (`createWinShell(sys, {user, io, elevated, mode})`, same surface as the bash shell; terminal.js picks it when `env.os === 'windows'` and draws a Windows Terminal frame).
+- Scenarios: `src/scenarios/win-deck/` (`cards.js`, `index.js` `makeWinRound(seed, {fixed})`; default export = Windows Practice Round 1 from `FIXED_SEED`). main.js `dealRound()` picks the Linux or Windows deck. Points scale to exactly 100, min 1.
+- UI: `src/ui/win-shell.js` (`WinDesktop`, `elevate()` = UAC, `showWinLock`, `showWinSignIn`, `winFileIcon`), `css/windows.css`, original icon set `src/ui/icons-win.js` (no Microsoft logos or Bloom artwork; Chrome uses the user's Chromium logo). Apps registered in `src/apps/registry.js` (`loadApp(id, os)`; `settings` maps to the Windows Settings on Windows).
+- Chrome on Windows reads policies from `HKLM\SOFTWARE\Policies\Google\Chrome` (browserprefs `chromiumPolicies`). browser.js knows `C:/CyberPatriot/...` file URLs.
+- Background: `S.tick(sys)` every 8 s respawns backdoors whose scheduled task / Run key still exists (Task Manager > Startup "Disable" also stops a Run-key respawn).
+- Tests: `tests/windows.test.mjs` (+ `tests/win-helpers.mjs`): 12 seeds by default, 60 checked; fixed round snapshot round trip; non-elevated refusals; cmd built-ins. 36 tests pass.
+
+## Nov 4 round 2: matched to the Training 2 answer key
+- Sources: user's `CP18_Windows11_Training2_Answer_Key.pdf` (25 checks + penalties), a photo of a 2025 round (left-aligned taskbar with "Type here to search"; report with time warning and public scoreboard link) and a 2025 report screenshot (Backup Operator, generic "Application update / Unwanted software check passed"). The YouTube link (Windows 10 securing walkthrough) had no transcript available.
+- New: `src/apps/win-npp.js` (Notepad++), `src/apps/win-wireshark.js` (pcap viewer, `parseCapture`, `filterFn`), `src/ui/win-run.js` (Run dialog through the cmd launcher), gpedit in `win-mmc.js` (`S.GPOS`, `gpoState`, `setGpo`), Chrome About/Update on Windows (browser-pages `help`), otp tool (`SITES['otp-tools.example'].tool`).
+- Model: SMB signing secopts, `KEYS.tsPolicy/winrmService/installer`, `rdpEnabled`/`nlaRequired` honour policy. Cards: so-smbclient/server, gpo-winrm, gpo-installer, backupop, exploit, apache-sig/tokens/indexes (`needApache` installs C:\Apache24 + Apache2.4 service, critical), software (folder or shortcut deletion also counts), fq-pcap (needs `ctx.wireshark`), fq-otp. `FIXED` in win-deck/index.js = Training 2 structure; `ctx.want` overrides card randomness.
+- Browsers: unknown http(s) sites load live in an iframe (`pg.live` in browser.js); search uses google.com/search?igu=1.
+- Report: scenario order, time warning, scoreboard link, `names: 'generic'` option (settings.reportNames).
+
 ## Next (agreed order)
-1. Windows image — scope with the user first (local security policy, users, services, firewall, Windows 10 look; roughly as big as everything so far).
+1. Windows polish if wanted: icacls/NTFS permissions, gpedit, richer Event Viewer, Edge/Firefox on Windows.
 2. More past-year tasks if the user sends the written list.
 3. Remaining polish listed in README "What's left".
