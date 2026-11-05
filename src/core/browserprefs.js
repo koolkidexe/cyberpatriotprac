@@ -181,7 +181,7 @@ export function writeChromiumBookmarks(sys, user, list, io) {
 }
 
 // ================================================================= Firefox
-export const FIREFOX_POLICY_FILES = ['/etc/firefox/policies/policies.json', '/usr/lib/firefox/distribution/policies.json', '/usr/lib/firefox-esr/distribution/policies.json'];
+export const FIREFOX_POLICY_FILES = ['/etc/firefox/policies/policies.json', '/usr/lib/firefox/distribution/policies.json', '/usr/lib/firefox-esr/distribution/policies.json', '/Program Files/Mozilla Firefox/distribution/policies.json'];
 export const FF_DEFAULTS = {
   'dom.disable_open_during_load': true,
   'browser.safebrowsing.malware.enabled': true,
@@ -243,7 +243,7 @@ export function removePrefLine(text, key) {
 
 /** Absolute path of the default profile directory (profiles.ini), or null. */
 export function firefoxProfileDir(sys, home) {
-  for (const base of [`${home}/.mozilla/firefox`, `${home}/snap/firefox/common/.mozilla/firefox`]) {
+  for (const base of [`${home}/.mozilla/firefox`, `${home}/snap/firefox/common/.mozilla/firefox`, `${home}/AppData/Roaming/Mozilla/Firefox`]) {
     const ini = rd(sys, `${base}/profiles.ini`);
     if (ini == null) continue;
     let sec = {}; const secs = [];
@@ -388,4 +388,16 @@ export function seedBrowserProfiles(sys, { distro, home = '/home/student', uid =
   ];
   put(`${prof}/prefs.js`, FF_PREFS_HEADER + ffPrefs.map(([k, v]) => `user_pref("${k}", ${fmtVal(v)});`).join('\n') + '\n');
   put(`${prof}/bookmarks.json`, '[]\n');
+}
+
+/** Windows: a Firefox profile under %APPDATA%\\Mozilla\\Firefox (secure defaults; scenario cards make it insecure). */
+export function seedWindowsFirefox(sys, user = 'student') {
+  const base = `/Users/${user}/AppData/Roaming/Mozilla/Firefox`;
+  const prof = `${base}/Profiles/w7k2m4qa.default-release`;
+  const put = (path, data) => { const d = path.slice(0, path.lastIndexOf('/')); if (!sys.vfs.isDir(d)) sys.vfs.mkdir(d, { parents: true, mode: 0o777 }); sys.vfs.writeFile(path, data, { mode: 0o666, uid: 0, gid: 0 }); };
+  put(`${base}/profiles.ini`, '[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/w7k2m4qa.default-release\nDefault=1\n\n[General]\nStartWithLastProfile=1\nVersion=2\n');
+  put(`${base}/installs.ini`, '[308046B0AF4A39CB]\nDefault=Profiles/w7k2m4qa.default-release\nLocked=1\n');
+  put(`${prof}/prefs.js`, ['// Mozilla User Preferences', '', 'user_pref("app.normandy.first_run", false);', 'user_pref("browser.startup.homepage", "about:home");', 'user_pref("browser.shell.checkDefaultBrowser", false);', 'user_pref("dom.disable_open_during_load", true);', 'user_pref("browser.safebrowsing.malware.enabled", true);', 'user_pref("browser.safebrowsing.phishing.enabled", true);', 'user_pref("browser.safebrowsing.downloads.enabled", true);', 'user_pref("signon.rememberSignons", true);', ''].join('\n'));
+  put(`${prof}/times.json`, '{"created":1700000000000,"firstUse":null}\n');
+  if (!sys.vfs.isDir(`/Users/${user}/Downloads`)) sys.vfs.mkdir(`/Users/${user}/Downloads`, { parents: true, mode: 0o777 });
 }

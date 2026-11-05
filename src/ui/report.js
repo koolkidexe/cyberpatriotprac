@@ -13,9 +13,8 @@ const WM = (() => {
 
 // Competition reports since 2025 hide which program was updated or removed; training images still name them.
 const GENERIC = { 'Application Updates': 'Application update check passed', 'Unwanted Software': 'Unwanted software check passed', 'Prohibited Software': 'Unwanted software check passed' };
-const MAX_MS = 4 * 3600000; // a competition round is four hours
 
-export function reportHtml(r, { mode = 'instant', title = 'CyberPatriot Practice Round', imageName = '', names = 'detailed' } = {}) {
+export function reportHtml(r, { mode = 'instant', title = 'CyberPatriot Practice Round', imageName = '', names = 'detailed', uid, stopped = false } = {}) {
   const line = (x, sign = '') => `<div class="l">${esc(names === 'generic' && GENERIC[x.category] ? GENERIC[x.category] : x.title)} - ${sign}${x.points} pts</div>`;
   const pen = r.penalties.map((p) => line(p, '-')).join('');
   const found = r.found.map((f) => line(f)).join('');
@@ -41,10 +40,10 @@ export function reportHtml(r, { mode = 'instant', title = 'CyberPatriot Practice
   <h1>${esc(title)}${imageName ? ` ${esc(imageName)}` : ''}</h1>
   <h2>Report Generated At: ${fmtTime(r.generatedAt)}</h2>
   <div class="meta">Image Start Time: ${fmtTime(start)}, Running Time: <span class="run">${fmtRun(r.elapsedMs)}</span><br>Team Start Time: ${fmtTime(start)}, Running Time: <span class="run">${fmtRun(r.elapsedMs)}</span></div>
-  ${r.elapsedMs > MAX_MS - 30 * 60000 ? `<p class="warn">${r.elapsedMs >= MAX_MS ? 'WARNING: The observed time for this team has exceeded the maximum competition time' : 'WARNING: The observed time for this team is approaching the maximum competition time'}</p>` : ''}
+${stopped ? '<p class="warn">Scoring has been stopped on this image. Resume it from the CyberPatriot icon in the notification area.</p>' : ''}
   <p class="meta"><a href="https://scoreboard.uscyberpatriot.org/" title="Opens the public scoreboard website">Click here to view the public scoreboard</a></p>
   <p class="meta"><b>Connection Status:</b> <span class="cs">Scoring Data Uploaded Successfully: No Errors Detected</span><br>Internet Connectivity Check: ${ok}<br>CCS Server Connection Status: ${ok}<br>CCS Server Score Upload Status: ${ok}</p>
-  <div class="id">Current Team Unique ID: <span>${esc(r.teamId)}</span></div>
+  <div class="id">Current Team Unique ID: ${uid === null ? '<span style="color:#c62828">Not Set</span>' : `<span>${esc(uid || r.teamId)}</span>`}</div>
   <div class="pts">${r.score} out of ${r.maxScore} points received</div>
   <h3>${r.penalties.length} penalt${r.penalties.length === 1 ? 'y' : 'ies'} assessed, for a loss of ${r.penaltyPoints} points:</h3>${pen}
   <h3>${r.foundCount} out of ${r.totalCount} scored checks passed, for a gain of ${r.gainPoints} points:</h3>${found}

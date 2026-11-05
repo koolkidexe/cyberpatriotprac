@@ -20,6 +20,7 @@ const secure = (ctx, pw) => `(ConvertTo-SecureString ${q(pw)} -AsPlainText -Forc
 const regPS = (k) => `HKLM:\\${S.regKey(k).slice(5)}`;
 const program = (sys, id) => S.listPrograms(sys).some((p) => p.id === id);
 const userDir = (n) => `/Users/${n}`;
+const FFPREFS = 'C:\\Users\\student\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\w7k2m4qa.default-release\\prefs.js';
 
 function addProgram(sys, p) {
   S.listPrograms(sys).push({ installed: '10/02/2026', size: 40, ...p });
@@ -70,9 +71,10 @@ const SECOPT_CARDS = [
   { id: 'so-shutdown', opt: 'shutdownNoLogon', bad: 1, good: 0, title: 'Allow system to be shut down without having to log on [disabled]' },
   { id: 'so-uac', opt: 'uacLua', bad: 0, good: 1, title: 'User Account Control: Run all administrators in Admin Approval Mode [enabled]' },
   { id: 'so-uacprompt', opt: 'uacPrompt', bad: 0, good: 2, title: 'UAC does not elevate administrators without prompting', check: (v) => Number(v) !== 0 },
+  { id: 'uac-always', opt: 'uacPrompt', bad: 5, good: 2, title: 'User Account Control is set to always notify', check: (v) => Number(v) === 2 },
   { id: 'so-auditforce', opt: 'auditForce', bad: 0, good: 1, title: 'Audit: Force audit policy subcategory settings to override category settings [enabled]' },
 ].map((c) => ({
-  id: c.id, cat: LOCAL, pts: 3, weight: 1,
+  id: c.id, cat: LOCAL, pts: 3, weight: 1, group: c.opt,
   plan(ctx) {
     const o = S.SECOPTS.find((x) => x.id === c.opt);
     ctx.apply((sys) => setReg(sys, o.key, o.value, c.bad));
@@ -178,7 +180,7 @@ export const CARDS = [
   } },
   { id: 'history', cat: ACCT, pts: 3, plan(ctx) {
     ctx.apply((sys) => { sys.win.policy.history = ctx.pick([0, 1]); });
-    ctx.vuln({ id: 'history', title: 'A secure password history policy exists', check: (s) => s.win.policy.history >= 5 });
+    ctx.vuln({ id: 'history', title: 'A sufficient password history is being kept', check: (s) => s.win.policy.history >= 5 });
     ctx.solve(1, 'net accounts /uniquepw:5');
   } },
   { id: 'maxage', cat: ACCT, pts: 2, plan(ctx) {
@@ -329,6 +331,12 @@ export const CARDS = [
     ctx.solve(1, `Stop-Service -Name ${pick.name} -Force`);
     ctx.solve(1, `Set-Service -Name ${pick.name} -StartupType Disabled`);
   } },
+  { id: 'wscsvc', cat: SVC, pts: 3, plan(ctx) {
+    ctx.apply((sys) => { const s = S.getService(sys, 'wscsvc'); s.startType = 'Disabled'; s.status = 'Stopped'; for (const p of sys.processes.filter((x) => x.svc === 'win:wscsvc')) sys.killProc(p.pid); });
+    ctx.vuln({ id: 'wscsvc', title: 'Windows Security Center service is running', check: (s) => S.serviceOn(s, 'wscsvc') });
+    ctx.solve(1, 'Set-Service -Name wscsvc -StartupType Automatic');
+    ctx.solve(1, 'Start-Service -Name wscsvc');
+  } },
   { id: 'upnp', cat: SVC, pts: 2, plan(ctx) {
     ctx.apply((sys) => { const s = S.getService(sys, 'upnphost'); s.startType = 'Automatic'; s.status = 'Running'; S.spawnFor(sys, s); });
     ctx.vuln({ id: 'svc-upnp', title: 'UPnP Device Host service has been stopped and disabled', check: (s) => S.serviceOff(s, 'upnphost') });
@@ -358,9 +366,13 @@ export const CARDS = [
     ctx.vuln({ id: 'nppupd', title: 'Notepad++ has been updated', check: (s) => S.programUpToDate(s, 'Notepad++.Notepad++') });
     ctx.solve(1, 'winget upgrade --id Notepad++.Notepad++ --silent');
   } },
-  { id: 'chromeupd', cat: APPUPD, pts: 3, plan(ctx) {
-    ctx.vuln({ id: 'chromeupd', title: 'Google Chrome has been updated', check: (s) => S.programUpToDate(s, 'Google.Chrome') });
-    ctx.solve(1, 'winget upgrade --id Google.Chrome --silent');
+  { id: 'ffupd', cat: APPUPD, pts: 3, plan(ctx) {
+    ctx.vuln({ id: 'ffupd', title: 'Firefox has been updated', check: (s) => S.programUpToDate(s, 'Mozilla.Firefox') });
+    ctx.solve(1, 'winget upgrade --id Mozilla.Firefox --silent');
+  } },
+  { id: 'tbupd', cat: APPUPD, pts: 3, plan(ctx) {
+    ctx.vuln({ id: 'tbupd', title: 'Thunderbird has been updated', check: (s) => S.programUpToDate(s, 'Mozilla.Thunderbird') });
+    ctx.solve(1, 'winget upgrade --id Mozilla.Thunderbird --silent');
   } },
   { id: '7zupd', cat: APPUPD, pts: 2, plan(ctx) {
     ctx.apply((sys) => { const p = S.listPrograms(sys).find((x) => x.id === '7zip.7zip'); p.version = '19.00'; p.name = '7-Zip 19.00 (x64)'; });
@@ -385,7 +397,7 @@ export const CARDS = [
     const picks = ctx.want?.software ? all.filter((p) => ctx.want.software.includes(p.short)) : ctx.shuffle(all).slice(0, ctx.int(1, 3));
     for (const p of picks) {
       const mark = p.markLnk ? `/Users/Public/Desktop/${p.name}.lnk` : p.mark || p.dir;
-      ctx.apply((sys) => addProgram(sys, p));
+      ctx.apply((sys) => { addProgram(sys, p); if (p.short === 'Nmap') addProgram(sys, { id: 'Insecure.Npcap', name: 'Npcap', publisher: 'Nmap Project', version: '1.79', dir: '/Program Files/Npcap', exe: 'NPFInstall.exe', size: 4 }); });
       ctx.vuln({ id: `sw-${lc(p.short).replace(/\W+/g, '')}`, title: `Removed ${p.short}`, check: (s) => !program(s, p.id) || !s.vfs.exists(mark) });
       ctx.solve(1, `winget uninstall --id ${p.id} --silent`);
     }
@@ -485,14 +497,14 @@ export const CARDS = [
 
   // ====================================================================== Application Security (Chrome)
   { id: 'brpopups', cat: APPSEC, pts: 3, plan(ctx) {
-    ctx.apply((sys) => BP.setChromium(sys, 'student', { 'profile.default_content_setting_values.popups': 1 }));
-    ctx.vuln({ id: 'brpopups', title: 'Google Chrome blocks pop-ups', check: (s) => BP.chromiumPopupsBlocked(s, 'student') });
-    ctx.solve(1, 'reg add "HKLM\\SOFTWARE\\Policies\\Google\\Chrome" /v DefaultPopupsSetting /t REG_DWORD /d 2 /f');
+    ctx.apply((sys) => BP.setFirefox(sys, 'student', { 'dom.disable_open_during_load': false }));
+    ctx.vuln({ id: 'brpopups', title: 'Firefox blocks pop-up windows', check: (s) => BP.firefoxPopupsBlocked(s, 'student') });
+    ctx.solve(1, `(Get-Content '${FFPREFS}') -replace 'user_pref\\("dom.disable_open_during_load", false\\);', 'user_pref("dom.disable_open_during_load", true);' | Set-Content '${FFPREFS}'`);
   } },
   { id: 'brsafe', cat: APPSEC, pts: 3, plan(ctx) {
-    ctx.apply((sys) => BP.setChromium(sys, 'student', { 'safebrowsing.enabled': false, 'safebrowsing.enhanced': false }));
-    ctx.vuln({ id: 'brsafe', title: 'Google Chrome Safe Browsing is enabled', check: (s) => BP.chromiumSafeBrowsingOn(s, 'student') });
-    ctx.solve(1, 'reg add "HKLM\\SOFTWARE\\Policies\\Google\\Chrome" /v SafeBrowsingProtectionLevel /t REG_DWORD /d 1 /f');
+    ctx.apply((sys) => BP.setFirefox(sys, 'student', { 'browser.safebrowsing.malware.enabled': false, 'browser.safebrowsing.phishing.enabled': false }));
+    ctx.vuln({ id: 'brsafe', title: 'Firefox blocks dangerous and deceptive content', check: (s) => BP.firefoxDangerousContentBlocked(s, 'student') });
+    ctx.solve(1, `(Get-Content '${FFPREFS}') -replace '(safebrowsing\\.(malware|phishing)\\.enabled", )false', '$1true' | Set-Content '${FFPREFS}'`);
   } },
 
   // ====================================================================== Forensics
@@ -550,6 +562,16 @@ export const CARDS = [
     const hex = (a) => a.map((b) => b.toString(16).padStart(2, '0')).join('');
     const ct = Array.from(msg, (c, i) => c.charCodeAt(0) ^ key[i]);
     ctx.forensic(`A message was encrypted with a one-time pad. Decrypt it.\n\nOne-time pad (key, hex):\n${hex(key)}\n\nCiphertext (hex):\n${hex(ct)}\n\nUse a one-time pad / XOR decryption tool, for example the practice tool at https://otp-tools.example/ in Google Chrome (or CyberChef's "From Hex" + "XOR").\n\nWhat is the decrypted message?`, msg);
+  } },
+  { id: 'fq-hex', forensic: true, plan(ctx) {
+    const msg = ctx.pick(['Keep calm and patch everything', 'Security is a team sport', 'Least privilege wins the day', 'Trust but verify every login', 'Practice makes perfect scores']);
+    const hx = Array.from(msg, (c) => c.charCodeAt(0).toString(16).padStart(2, '0'));
+    const lines = []; for (let i = 0; i < hx.length; i += 20) lines.push(hx.slice(i, i + 20).join(' '));
+    ctx.forensic(`Convert the following message:\n\n${lines.join('\n')}\n\nHint: Use a Hex to ASCII text converter (for example https://hex-tools.example/ in Firefox).\n\n( EXAMPLE: Decode to find the answer! )`, msg);
+  } },
+  { id: 'fq-cve', forensic: true, plan(ctx) {
+    const c = ctx.pick([['CVE-2021-36934', 'The Windows Elevation of Privilege vulnerability identified in CVE-2021-36934 lets non-administrator users read the Security Account Manager (SAM) database file, which stores hashed user and administrator passwords. An attacker could then install programs, create accounts and delete data.'], ['CVE-2021-34527', 'The Windows Print Spooler remote code execution vulnerability identified in CVE-2021-34527 ("PrintNightmare") lets an attacker abuse the Print Spooler service, which performs privileged file operations improperly. An attacker could then install programs, create accounts and delete data.']]);
+    ctx.forensic(`${c[1]}\n\nWhat privileges would an attacker have in the CVE described above? Reference: Microsoft Security Response Center (practice copy: https://msrc.example/update-guide/vulnerability/${c[0]}).\n\n( EXAMPLE: Users )`, 'SYSTEM');
   } },
   { id: 'fq-note', forensic: true, plan(ctx) {
     const owner = ctx.pick(ctx.users).name;

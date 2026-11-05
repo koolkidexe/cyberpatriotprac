@@ -29,6 +29,7 @@ export class ScoringEngine {
 
   /** Re-check everything now. Returns what changed. */
   evaluate() {
+    if (this.paused) return { gained: [], lost: [], penalized: [], cleared: [] }; // Stop Scoring was run
     const now = this.sys.now();
     const delta = { gained: [], lost: [], penalized: [], cleared: [] };
     for (const v of this.scenario.vulns) {

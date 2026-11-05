@@ -5,7 +5,7 @@
 // players use. cmd.exe supports its built-ins, & and && chaining and | findstr. Native tools come from native.js.
 import * as S from './state.js';
 import { NATIVE } from './native.js';
-import { WIN_VERSION } from './image.js';
+import { winVer } from './image.js';
 import { sha256hex, md5ish } from '../core/util.js';
 
 const lc = (s) => String(s ?? '').toLowerCase();
@@ -119,6 +119,7 @@ function fileTable(run) {
 // ============================================================================ the shell
 export function createWinShell(sys, { user = 'student', io, elevated = false, mode = 'ps' } = {}) {
   const home = `/Users/${user}`;
+  const WIN_VERSION = winVer(sys);
   const env = { USERPROFILE: `C:\\Users\\${user}`, USERNAME: user, COMPUTERNAME: sys.hostname, WINDIR: 'C:\\Windows', SYSTEMROOT: 'C:\\Windows', SYSTEMDRIVE: 'C:', HOMEDRIVE: 'C:', HOMEPATH: `\\Users\\${user}`, PROGRAMFILES: 'C:\\Program Files', 'PROGRAMFILES(X86)': 'C:\\Program Files (x86)', PROGRAMDATA: 'C:\\ProgramData', APPDATA: `C:\\Users\\${user}\\AppData\\Roaming`, LOCALAPPDATA: `C:\\Users\\${user}\\AppData\\Local`, TEMP: `C:\\Users\\${user}\\AppData\\Local\\Temp`, TMP: `C:\\Users\\${user}\\AppData\\Local\\Temp`, PUBLIC: 'C:\\Users\\Public', OS: 'Windows_NT', PATH: 'C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\', PATHEXT: '.COM;.EXE;.BAT;.CMD;.VBS;.JS;.MSC', PROCESSOR_ARCHITECTURE: 'AMD64', COMSPEC: 'C:\\Windows\\system32\\cmd.exe' };
   const sh = {
     sys, user, io, elevated, mode, cwd: sys.vfs.exists(home) ? (elevated && mode === 'cmd' ? '/Windows/System32' : home) : '/', env, history: [], vars: {}, lastExit: 0, status: 0,
@@ -236,12 +237,12 @@ export function createWinShell(sys, { user = 'student', io, elevated = false, mo
   // GUI programs started from a prompt
   const LAUNCH = {
     notepad: 'notepad', explorer: 'explorer', control: 'control', 'lusrmgr.msc': 'lusrmgr', 'services.msc': 'services', 'secpol.msc': 'secpol', 'gpedit.msc': 'gpedit', 'notepad++': 'notepadpp', wireshark: 'wireshark', 'ms-settings:': 'settings', 'compmgmt.msc': 'compmgmt', 'taskschd.msc': 'taskschd', 'eventvwr.msc': 'compmgmt', 'fsmgmt.msc': 'shares',
-    taskmgr: 'taskmgr', regedit: 'regedit', 'firewall.cpl': 'firewall', 'appwiz.cpl': 'programs', 'sysdm.cpl': 'sysdm', 'wf.msc': 'firewall', 'ncpa.cpl': 'control', 'optionalfeatures': 'features', chrome: 'chrome', msedge: 'chrome', mmc: 'compmgmt', 'windowsdefender:': 'security', 'ms-settings:': 'settings', 'netplwiz': 'lusrmgr',
+    taskmgr: 'taskmgr', regedit: 'regedit', 'firewall.cpl': 'firewall', 'appwiz.cpl': 'programs', 'sysdm.cpl': 'sysdm', 'wf.msc': 'firewall', 'ncpa.cpl': 'control', 'optionalfeatures': 'features', chrome: 'firefox', msedge: 'firefox', firefox: 'firefox', thunderbird: 'thunderbird', useraccountcontrolsettings: 'uacsettings', mmc: 'compmgmt', 'windowsdefender:': 'security', 'ms-settings:': 'settings', 'netplwiz': 'lusrmgr',
   };
   async function launchApp(name, args) {
     const key = lc(name).replace(/\.exe$/, '');
     let app = LAUNCH[key];
-    if (key === 'start' && args.length) { const t = lc(args[0]); app = LAUNCH[t] || (t.startsWith('ms-settings:') ? 'settings' : t.startsWith('windowsdefender:') ? 'security' : null); if (!app && /^https?:/.test(t)) app = 'chrome'; }
+    if (key === 'start' && args.length) { const t = lc(args[0]); app = LAUNCH[t] || (t.startsWith('ms-settings:') ? 'settings' : t.startsWith('windowsdefender:') ? 'security' : null); if (!app && /^https?:/.test(t)) app = 'firefox'; }
     if (key === 'control' && args[0]) { const m = { userpasswords2: 'lusrmgr', 'admintools': 'control', 'firewall.cpl': 'firewall', 'appwiz.cpl': 'programs', 'sysdm.cpl': 'sysdm', 'system': 'sysdm', 'printers': 'control' }[lc(args[0])]; if (m) app = m; }
     if (!app) return false;
     io.launch(app, { args, user, elevated: sh.elevated, page: key.startsWith('ms-settings') ? key : lc(args[0] || '') });
@@ -690,7 +691,7 @@ export function createWinShell(sys, { user = 'student', io, elevated = false, mo
     'get-history': { name: 'Get-History', fn() { return sh.history.map((c, i) => obj('HistoryInfo', { Id: i + 1, CommandLine: c })); } },
     'get-command': { name: 'Get-Command', fn(ctx) { const n = ctx.a.get('name') ?? ctx.a.pos[0]; const all = Object.values(CMDLETS).map((c) => c.name); return all.filter((c) => !n || wild(n).test(c)).sort().map((c) => obj('CommandInfo', { CommandType: 'Cmdlet', Name: c, Version: '1.0.0.0', Source: /LocalUser|LocalGroup/.test(c) ? 'Microsoft.PowerShell.LocalAccounts' : /Smb/.test(c) ? 'SmbShare' : /NetFirewall|NetTCP/.test(c) ? 'NetSecurity' : /ScheduledTask/.test(c) ? 'ScheduledTasks' : /Mp/.test(c) ? 'Defender' : 'Microsoft.PowerShell.Management' })); } },
     'get-help': { name: 'Get-Help', fn(ctx) { const n = ctx.a.pos[0]; const c = n && CMDLETS[ALIASES[lc(n)] || lc(n)]; return c ? `\nNAME\n    ${c.name}\n\nSYNTAX\n    ${c.name} [-Name <string[]>] [<CommonParameters>]\n\nREMARKS\n    Get-Help cannot find the Help files for this cmdlet on this computer. It is displaying only partial help.\n` : 'Get-Help: use Get-Command to list the commands this simulator supports.'; } },
-    'get-computerinfo': { name: 'Get-ComputerInfo', fn() { return obj('ComputerInfo', { WindowsBuildLabEx: `${WIN_VERSION.build}.1.amd64fre.ni_release.220506-1250`, WindowsCurrentVersion: '6.3', WindowsEditionId: WIN_VERSION.edition, WindowsProductName: 'Windows 10 Pro', WindowsVersion: '2009', OsName: 'Microsoft Windows 11 Pro', OsVersion: `10.0.${WIN_VERSION.build}`, OsBuildNumber: WIN_VERSION.build, CsName: sys.hostname, CsDomain: 'WORKGROUP', CsPartOfDomain: false, OsArchitecture: '64-bit' }); } },
+    'get-computerinfo': { name: 'Get-ComputerInfo', fn() { return obj('ComputerInfo', { WindowsBuildLabEx: `${WIN_VERSION.build}.1.amd64fre.ni_release.220506-1250`, WindowsCurrentVersion: '6.3', WindowsEditionId: WIN_VERSION.edition, WindowsProductName: 'Windows 10 Pro', WindowsVersion: '2009', OsName: `Microsoft ${WIN_VERSION.product}`, OsVersion: `10.0.${WIN_VERSION.build}`, OsBuildNumber: WIN_VERSION.build, CsName: sys.hostname, CsDomain: 'WORKGROUP', CsPartOfDomain: false, OsArchitecture: '64-bit' }); } },
     'start-process': { name: 'Start-Process', sw: ['wait', 'nonewwindow'], async fn(ctx) { const fp = String(ctx.a.get('filepath') ?? ctx.a.pos[0]); const verb = ctx.a.get('verb'); const args = [].concat(ctx.a.get('argumentlist') ?? []).map(String); if (lc(verb) === 'runas') { io.launch('elevate', { target: fp, args }); return; } if (!(await launchApp(lc(fp).replace(/\.exe$/, ''), args))) { if (/^(powershell|cmd)$/i.test(lc(fp).replace(/\.exe$/, ''))) io.launch('terminal', { mode: lc(fp).startsWith('cmd') ? 'cmd' : 'ps', elevated: sh.elevated }); else throw new PSError(`This command cannot be run due to the error: The system cannot find the file specified.`, { id: 'InvalidOperationException,Microsoft.PowerShell.Commands.StartProcessCommand', cat: 'InvalidOperation' }); } } },
     'restart-computer': { name: 'Restart-Computer', sw: ['force'], fn() { requireAdmin('Failed to restart the computer with the following error message: Access is denied.'); io.power?.('reboot'); } },
     'stop-computer': { name: 'Stop-Computer', sw: ['force'], fn() { io.power?.('poweroff'); } },

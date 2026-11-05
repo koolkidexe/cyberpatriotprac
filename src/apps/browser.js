@@ -52,7 +52,7 @@ export function open(env, opts = {}) {
   const omni = h('div', { class: 'bx-omni' }, siteInfo, url, popBadge, star);
   // Windows Chrome shows an "Update" pill at the top right while an update is pending
   const chromeProg = () => (isWin ? sys.win.programs.find((p) => p.id === 'Google.Chrome') : null);
-  const updPill = isWin ? h('button', { class: 'bx-upd', title: 'Chrome is out of date. Update Chrome (opens About Chrome)', onclick: () => newTab('chrome://settings/help') }, 'Update') : null;
+  const updPill = isWin && !isFF ? h('button', { class: 'bx-upd', title: 'Chrome is out of date. Update Chrome (opens About Chrome)', onclick: () => newTab('chrome://settings/help') }, 'Update') : null;
   const syncPill = () => { if (updPill) { const p = chromeProg(); updPill.style.display = p && p.latest && p.version !== p.latest ? '' : 'none'; } };
   const toolbar = h('div', { class: 'bx-toolbar' }, bBack, bFwd, bReload, bHome, omni, dlBtn, updPill, menuBtn);
   const bookmarks = h('div', { class: 'bx-bookmarks' });
@@ -60,7 +60,7 @@ export function open(env, opts = {}) {
   const stage = h('div', { class: 'bx-stage' });
   const shelf = h('div', { class: 'bx-shelf', style: { display: 'none' } });
   const root = h('div', { class: `bx ${isFF ? 'bx-ff' : 'bx-cr'}` }, strip, toolbar, bookmarks, infobar, stage, shelf);
-  const win = env.wm.open({ title: brand, icon: bicon, width: opts.popup ? 560 : 1000, height: opts.popup ? 420 : 660, appId: isWin ? 'chrome' : bicon, content: root, frameless: true, cls: 'bx-win', minW: 420, minH: 260 });
+  const win = env.wm.open({ title: brand, icon: bicon, width: opts.popup ? 560 : 1000, height: opts.popup ? 420 : 660, appId: isWin ? (isFF ? 'firefox' : 'chrome') : bicon, content: root, frameless: true, cls: 'bx-win', minW: 420, minH: 260 });
   strip.append(win.controls());
   win.makeDraggable(strip);
   const unsub = env.engine.on('evaluated', () => {
@@ -155,7 +155,7 @@ export function open(env, opts = {}) {
     const m = /^file:\/\/(\/.*)$/.exec(u);
     if (m) {
       const p = decodeURIComponent(m[1]).replace(/^\/[A-Za-z]:(?=\/|$)/, '') || '/';
-      if (p.toLowerCase() === REPORT.toLowerCase()) { t.live = true; return { title: 'CCS Scoring Report', html: reportHtml(env.engine.report(), { names: env.settings.reportNames || 'detailed', mode: env.settings.mode, title: `CyberPatriot ${env.scenario.title}`, imageName: env.os === 'ubuntu' ? 'Ubuntu 22' : isWin ? 'Windows 11' : 'Mint 21' }) }; }
+      if (p.toLowerCase() === REPORT.toLowerCase()) { t.live = true; return { title: 'CCS Scoring Report', html: reportHtml(env.engine.report(), { uid: env.ccs ? env.ccs.uid() : undefined, stopped: !!env.engine.paused, names: env.settings.reportNames || 'detailed', mode: env.settings.mode, title: `CyberPatriot ${env.scenario.title}`, imageName: env.os === 'ubuntu' ? 'Ubuntu 22' : isWin ? (env.winVer === 10 ? 'Windows 10' : 'Windows 11') : 'Mint 21' }) }; }
       try {
         if (fs.isDir(p)) { const names = fs.readdir(p).sort(); return { title: `Index of ${p}`, html: errDoc(`Index of ${p}`, `{T}<ul>${p !== '/' ? `<li><a href="file://${esc(p.replace(/\/[^/]+\/?$/, '') || '/')}">[parent directory]</a></li>` : ''}${names.map((n) => `<li><a href="file://${esc((p.endsWith('/') ? p : p + '/') + n)}">${esc(n)}</a></li>`).join('')}</ul>`, isDark()) }; }
         const data = fs.readFile(p);
@@ -177,7 +177,25 @@ export function open(env, opts = {}) {
     }
     if (site.threat && threatBlocked(site.threat) && !t.bypass.has(site.host)) { t.internal = true; t.threatened = true; return { title: isFF ? 'Deceptive site ahead' : 'Security error', view: interstitial(t, u, site) }; }
     if (site.tool === 'otp') return { title: site.title, view: otpTool() };
+    if (site.tool === 'hex') return { title: site.title, view: hexTool() };
     return { title: site.title, html: site.html(site.path), site };
+  }
+  /** Hex <-> ASCII converter. */
+  function hexTool() {
+    const inp = h('textarea', { rows: 6, placeholder: '48 65 6c 6c 6f', title: 'Input' });
+    const out = h('textarea', { rows: 6, readOnly: true, title: 'Result' });
+    const err = h('div', { style: { color: '#c00', minHeight: '18px' } });
+    const conv = (toText) => {
+      err.textContent = '';
+      if (toText) { const c = inp.value.replace(/0x/gi, '').replace(/[^0-9a-f]/gi, ''); if (c.length % 2) { err.textContent = 'Hex input must have an even number of digits.'; return; } out.value = (c.match(/../g) || []).map((b) => String.fromCharCode(parseInt(b, 16))).join(''); }
+      else out.value = Array.from(inp.value, (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
+    };
+    for (const el of [inp, out]) Object.assign(el.style, { width: '100%', font: '13px Consolas, monospace', padding: '6px', boxSizing: 'border-box' });
+    const btn = (t, fn) => h('button', { style: { padding: '8px 18px', background: '#1a73e8', color: '#fff', border: 0, borderRadius: '6px', font: 'inherit', cursor: 'pointer', marginRight: '8px' }, onclick: fn }, t);
+    return h('div', { style: { flex: 1, overflow: 'auto', background: '#fff', color: '#202124', font: '14px "Segoe UI", Arial, sans-serif' } }, h('div', { style: { maxWidth: '760px', margin: '0 auto', padding: '24px 30px' } },
+      h('h1', { style: { fontWeight: 500, fontSize: '24px' } }, 'Hex to ASCII text converter'), h('p', null, 'Paste hexadecimal bytes (spaces are optional) and convert them to text, or turn text into hex.'),
+      inp, h('div', { style: { margin: '10px 0' } }, btn('Hex → Text', () => conv(true)), btn('Text → Hex', () => conv(false))), err, out,
+      h('div', { style: { fontSize: '12px', color: '#777', marginTop: '30px', borderTop: '1px solid #ddd', paddingTop: '10px' } }, 'Training site inside the CyberPatriot simulator. It is not a real website.')));
   }
   /** One-time pad tool: XOR a message/ciphertext with a key. Hex is accepted for the key and the ciphertext. */
   function otpTool() {
@@ -372,6 +390,7 @@ export function open(env, opts = {}) {
       { label: 'Scoring Report', action: () => newTab(`${CPD}/ScoringReport.html`) },
       { label: 'Practice sites', action: () => newTab(START_PAGE) },
       { label: 'Settings', action: () => newTab(st) },
+      ...(isFF && isWin ? [{ label: 'Help › About Firefox', action: () => aboutFirefox() }] : []),
       ...(isFF ? [{ label: 'Advanced preferences (about:config)', action: () => newTab('about:config') }, { label: 'Policies (about:policies)', action: () => newTab('about:policies') }] : [{ label: 'Policies (chrome://policy)', action: () => newTab('chrome://policy') }, { label: isWin ? 'Help › About Google Chrome' : 'About Chromium', action: () => newTab('chrome://settings/help') }]),
       { label: isFF ? 'Quit' : 'Exit', action: () => win.close() },
     ]);
@@ -398,6 +417,46 @@ export function open(env, opts = {}) {
   root.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key.toLowerCase() === 't') { e.preventDefault(); newTab(homeUrl()); } else if (e.ctrlKey && e.key.toLowerCase() === 'w') { e.preventDefault(); if (cur) closeTab(cur); } else if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); url.focus(); } else if (e.key === 'F5') { e.preventDefault(); if (cur) load(cur, { nav: true }); }
   });
+
+  // ---- Firefox on Windows: the "update available" doorhanger and Help > About Firefox (really upgrades Mozilla.Firefox)
+  const ffProg = () => (isWin && isFF ? sys.win.programs.find((p) => p.id === 'Mozilla.Firefox') : null);
+  const ffOutdated = () => { const p = ffProg(); return !!p && !!p.latest && p.latest !== p.version; };
+  function aboutFirefox() {
+    const p0 = ffProg(); if (!p0) return;
+    let state = ffOutdated() ? 'available' : 'current';
+    const body = h('div');
+    let close = null;
+    const draw = () => {
+      clear(body); const p = ffProg();
+      body.append(h('div', { style: { fontSize: '13px', margin: '4px 0 12px' } }, `${p.version}esr (64-bit)`));
+      if (state === 'current') body.append(h('div', null, '✓ Firefox is up to date'));
+      else if (state === 'available') body.append(h('button', { class: 'ff-b ff-primary', onclick: () => { state = 'downloading'; draw(); setTimeout(() => { state = 'ready'; draw(); }, 900); } }, `Update to ${p.latest}`));
+      else if (state === 'downloading') body.append(h('div', null, 'Downloading update — ', h('progress', { max: 100, value: 55, style: { width: '150px' } })));
+      else body.append(h('button', { class: 'ff-b ff-primary', onclick: async () => {
+        close && close(true); // one modal at a time: close About before the UAC prompt
+        if (!(await env.elevate({ what: 'Mozilla Maintenance Service' }))) return;
+        S_upgrade(p);
+        const urls = tabs.map((t) => t.url).filter((u) => u && !/^about:/.test(u));
+        win.close();
+        setTimeout(() => env.openApp('firefox', { args: urls }), 350);
+      } }, 'Restart to update Firefox'));
+      body.append(h('p', { style: { fontSize: '12px', color: '#d8d8e8', marginTop: '14px', maxWidth: '330px' } }, 'Firefox is designed by Mozilla, a global community working together to keep the Web open, public and accessible to all.'));
+    };
+    draw();
+    env.ui.modal((d) => { close = d; return h('div', { class: 'w-dlg', style: { width: '560px' } }, h('div', { class: 'wd-t' }, h('span', null, 'About Mozilla Firefox'), h('span', { onclick: () => d(false) }, '✕')),
+      h('div', { style: { display: 'flex', gap: '20px', padding: '22px', background: 'radial-gradient(circle at 20% 30%,#3b2a7a,#14123a)', color: '#fff' } }, icon('firefox', 96), h('div', null, h('div', { style: { fontSize: '30px', fontWeight: 300 } }, 'Firefox Browser'), body))); });
+  }
+  const S_upgrade = (p) => { p.version = p.latest; sys.touch('win'); };
+  function doorhanger() {
+    if (!ffOutdated() || opts.popup || env.settings.ffUpdNotNow) return;
+    const r = menuBtn.getBoundingClientRect();
+    const box = h('div', { class: 'ff-door', style: { left: `${Math.max(8, r.right - 340)}px`, top: `${r.bottom + 6}px` } },
+      h('div', { style: { display: 'flex', gap: '12px' } }, icon('firefox', 32), h('div', null, h('b', null, 'A new Firefox update is available.'), h('div', { style: { marginTop: '4px' } }, 'Download the update and restart Firefox to get the latest fixes and security features.'))),
+      h('div', { class: 'ff-door-f' }, h('button', { class: 'ff-b', onclick: () => { box.remove(); env.settings.ffUpdNotNow = true; } }, 'Not Now'), h('button', { class: 'ff-b ff-primary', onclick: () => { box.remove(); aboutFirefox(); } }, 'Download Update')));
+    document.body.append(box);
+    win.onClose?.(() => { box.remove(); return true; });
+  }
+  if (isWin && isFF) { menuBtn.classList.toggle('ff-badge', ffOutdated()); setTimeout(doorhanger, 1200); }
 
   const first = (opts.args || []).filter((a) => !a.startsWith('-'));
   applyChrome();

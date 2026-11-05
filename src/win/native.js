@@ -2,7 +2,7 @@
 // tasklist, taskkill, ipconfig, whoami, systeminfo, ...). Used from both cmd.exe and PowerShell. Each takes
 // (ctx, argv) and returns an exit code; output goes through ctx.out / ctx.err. Text formats follow the real tools.
 import * as S from './state.js';
-import { WIN_VERSION } from './image.js';
+import { winVer } from './image.js';
 import { sha256hex, md5ish } from '../core/util.js';
 
 const lc = (s) => String(s ?? '').toLowerCase();
@@ -396,7 +396,7 @@ export function wmic(ctx, argv) {
   if (alias === 'process') { const rows = sys.processes.map((p) => ({ Name: p.comm, ProcessId: p.pid, CommandLine: p.cmd, ExecutablePath: p.cmd.split(' ')[0].replace(/"/g, '') })); table(rows, props.length ? props.map((p) => ({ name: 'Name', processid: 'ProcessId', commandline: 'CommandLine', executablepath: 'ExecutablePath' }[lc(p)] || p)) : ['Name', 'ProcessId', 'CommandLine']); return 0; }
   if (alias === 'share') { table(S.listShares(sys).map((s) => ({ Name: s.name, Path: s.path, Description: s.desc })), ['Description', 'Name', 'Path']); return 0; }
   if (alias === 'qfe') { table(sys.win.installedUpdates.concat(sys.win.updates.filter((u) => u.installed).map((u) => u.kb)).map((kb) => ({ HotFixID: kb, Description: 'Update', InstalledOn: '11/14/2023' })), ['Description', 'HotFixID', 'InstalledOn']); return 0; }
-  if (alias === 'os') { table([{ Caption: 'Microsoft Windows 11 Pro', Version: `10.0.${WIN_VERSION.build}`, BuildNumber: WIN_VERSION.build, OSArchitecture: '64-bit' }], props.length ? props : ['BuildNumber', 'Caption', 'OSArchitecture', 'Version']); return 0; }
+  if (alias === 'os') { table([{ Caption: `Microsoft ${winVer(ctx.sys).product}`, Version: `10.0.${winVer(ctx.sys).build}`, BuildNumber: winVer(ctx.sys).build, OSArchitecture: '64-bit' }], props.length ? props : ['BuildNumber', 'Caption', 'OSArchitecture', 'Version']); return 0; }
   ctx.out('wmic:root\\cli>\nAvailable aliases: useraccount, product, process, share, qfe, os\n'); return 0;
 }
 
@@ -494,7 +494,7 @@ export function whoami(ctx, argv) {
 }
 export function systeminfo(ctx) {
   const sys = ctx.sys;
-  ctx.out(`\nHost Name:                 ${sys.hostname}\nOS Name:                   Microsoft Windows 11 Pro\nOS Version:                10.0.${WIN_VERSION.build} N/A Build ${WIN_VERSION.build}\nOS Manufacturer:           Microsoft Corporation\nOS Configuration:          Standalone Workstation\nOS Build Type:             Multiprocessor Free\nRegistered Owner:          student\nProduct ID:                00330-80000-00000-AA123\nOriginal Install Date:     11/14/2023, 9:12:40 AM\nSystem Boot Time:          ${fmtDate(sys.bootTime)}\nSystem Manufacturer:       VMware, Inc.\nSystem Model:              VMware20,1\nSystem Type:               x64-based PC\nProcessor(s):              1 Processor(s) Installed.\n                           [01]: Intel64 Family 6 Model 142 Stepping 10 GenuineIntel ~1800 Mhz\nWindows Directory:         C:\\Windows\nSystem Directory:          C:\\Windows\\system32\nTotal Physical Memory:     4,095 MB\nAvailable Physical Memory: 1,812 MB\nDomain:                    WORKGROUP\nHotfix(s):                 ${sys.win.installedUpdates.length + sys.win.updates.filter((u) => u.installed).length} Hotfix(s) Installed.\n${[...sys.win.installedUpdates, ...sys.win.updates.filter((u) => u.installed).map((u) => u.kb)].map((k, i) => `                           [${String(i + 1).padStart(2, '0')}]: ${k}`).join('\n')}\nNetwork Card(s):           1 NIC(s) Installed.\n                           [01]: Intel(R) 82574L Gigabit Network Connection\n                                 Connection Name: Ethernet0\n                                 DHCP Enabled:    Yes\n                                 IP address(es)\n                                 [01]: 192.168.56.110\n`); return 0;
+  ctx.out(`\nHost Name:                 ${sys.hostname}\nOS Name:                   Microsoft ${winVer(ctx.sys).product}\nOS Version:                10.0.${winVer(ctx.sys).build} N/A Build ${winVer(ctx.sys).build}\nOS Manufacturer:           Microsoft Corporation\nOS Configuration:          Standalone Workstation\nOS Build Type:             Multiprocessor Free\nRegistered Owner:          student\nProduct ID:                00330-80000-00000-AA123\nOriginal Install Date:     11/14/2023, 9:12:40 AM\nSystem Boot Time:          ${fmtDate(sys.bootTime)}\nSystem Manufacturer:       VMware, Inc.\nSystem Model:              VMware20,1\nSystem Type:               x64-based PC\nProcessor(s):              1 Processor(s) Installed.\n                           [01]: Intel64 Family 6 Model 142 Stepping 10 GenuineIntel ~1800 Mhz\nWindows Directory:         C:\\Windows\nSystem Directory:          C:\\Windows\\system32\nTotal Physical Memory:     4,095 MB\nAvailable Physical Memory: 1,812 MB\nDomain:                    WORKGROUP\nHotfix(s):                 ${sys.win.installedUpdates.length + sys.win.updates.filter((u) => u.installed).length} Hotfix(s) Installed.\n${[...sys.win.installedUpdates, ...sys.win.updates.filter((u) => u.installed).map((u) => u.kb)].map((k, i) => `                           [${String(i + 1).padStart(2, '0')}]: ${k}`).join('\n')}\nNetwork Card(s):           1 NIC(s) Installed.\n                           [01]: Intel(R) 82574L Gigabit Network Connection\n                                 Connection Name: Ethernet0\n                                 DHCP Enabled:    Yes\n                                 IP address(es)\n                                 [01]: 192.168.56.110\n`); return 0;
 }
 export function gpupdate(ctx) { ctx.out('Updating policy...\n\nComputer Policy update has completed successfully.\nUser Policy update has completed successfully.\n\n'); return 0; }
 export function usoclient(ctx, argv) {
@@ -506,5 +506,5 @@ export function usoclient(ctx, argv) {
 export const NATIVE = {
   net, net1: net, sc, reg, netsh, auditpol, secedit, schtasks, wmic, winget, certutil, netstat, tasklist, taskkill, ipconfig, whoami, systeminfo, gpupdate, usoclient,
   hostname: (ctx) => { ctx.out(ctx.sys.hostname + '\n'); return 0; },
-  ver: (ctx) => { ctx.out(`\nMicrosoft Windows [Version 10.0.${WIN_VERSION.build}.${WIN_VERSION.ubr}]\n`); return 0; },
+  ver: (ctx) => { ctx.out(`\nMicrosoft Windows [Version 10.0.${winVer(ctx.sys).build}.${winVer(ctx.sys).ubr}]\n`); return 0; },
 };

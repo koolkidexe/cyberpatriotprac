@@ -4,7 +4,7 @@
 import { h, clear } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { elevate } from '../ui/win-shell.js';
-import { WIN_VERSION } from '../win/image.js';
+import { winVer } from '../win/image.js';
 import * as S from '../win/state.js';
 
 const lc = (s) => String(s ?? '').toLowerCase();
@@ -15,11 +15,47 @@ const admin = (env, opts, what) => (opts.elevated ? Promise.resolve(true) : elev
 // ============================================================================ Settings
 const PAGES = [['system', 'System', 'w-thispc'], ['network', 'Network & internet', 'w-network'], ['personalization', 'Personalization', 'w-image'], ['apps', 'Apps', 'w-programs'], ['accounts', 'Accounts', 'w-users'], ['time', 'Time & language', 'w-taskschd'], ['privacy', 'Privacy & security', 'w-security'], ['update', 'Windows Update', 'w-update']];
 
+const PAGES10 = [['system', 'System', 'w-thispc', 'Display, sound, notifications, power'], ['devices', 'Devices', 'w-thispc', 'Bluetooth, printers, mouse'], ['network', 'Network & Internet', 'w-network', 'Wi-Fi, airplane mode, VPN'], ['personalization', 'Personalization', 'w-image', 'Background, lock screen, colors'], ['apps', 'Apps', 'w-programs', 'Uninstall, defaults, optional features'], ['accounts', 'Accounts', 'w-users', 'Your accounts, email, sync, work, family'], ['time', 'Time & Language', 'w-taskschd', 'Speech, region, date'], ['privacy', 'Privacy', 'w-lock', 'Location, camera, microphone'], ['update', 'Update & Security', 'w-update', 'Windows Update, recovery, backup']];
+
+/** NSIS-style uninstaller window used by most third-party programs ("<name> Uninstall"). Resolves true when removed. */
+export function nsisUninstall(env, p, { elevated = false } = {}) {
+  const sys = env.sys;
+  return (async () => {
+    if (!elevated && !(await elevate(env, { what: `${p.name} Uninstall` }))) return false;
+    let stage = 0;
+    return env.ui.modal((done) => {
+      const head = h('div', { class: 'nsis-h' }); const body = h('div', { class: 'nsis-b' }); const foot = h('div', { class: 'nsis-f' });
+      const draw = () => {
+        clear(head); clear(body); clear(foot);
+        if (stage === 0) {
+          head.append(h('div', null, h('b', null, `Uninstall ${p.name}`), h('div', null, `Remove ${p.name} from your computer.`)), icon('w-programs', 36));
+          body.append(h('p', null, `${p.name} will be uninstalled from the following folder. Click Uninstall to start the uninstallation.`), h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, 'Uninstalling from:', h('input', { class: 'w-in', readOnly: true, value: p.dir ? S.toWin(p.dir) : `C:\Program Files\${p.name}`, style: { flex: 1 } })));
+          foot.append(h('span', { class: 'nsis-brand' }, 'Nullsoft Install System v3.08'), h('button', { class: 'w-btn primary', onclick: () => { stage = 1; draw(); setTimeout(() => { try { S.uninstallProgram(sys, p); } catch (e) { stage = -1; } if (stage !== -1) stage = 2; draw(); }, 900); } }, 'Uninstall'), h('button', { class: 'w-btn', onclick: () => done(false) }, 'Cancel'));
+        } else if (stage === 1) {
+          head.append(h('div', null, h('b', null, 'Uninstalling'), h('div', null, `Please wait while ${p.name} is being uninstalled.`)), icon('w-programs', 36));
+          body.append(h('div', null, 'Remove folder: ' + (p.dir ? S.toWin(p.dir) : '')), h('progress', { class: 'nsis-p', max: 100, value: 60 }));
+          foot.append(h('span', { class: 'nsis-brand' }, 'Nullsoft Install System v3.08'), h('button', { class: 'w-btn', disabled: true }, '< Back'), h('button', { class: 'w-btn', disabled: true }, 'Close'), h('button', { class: 'w-btn', disabled: true }, 'Cancel'));
+        } else {
+          const ok = stage === 2;
+          head.append(h('div', null, h('b', null, ok ? 'Uninstallation Complete' : 'Uninstallation Failed'), h('div', null, ok ? 'Uninstall was completed successfully.' : 'The program could not be removed.')), icon('w-programs', 36));
+          body.append(h('div', null, ok ? 'Completed' : 'Error'), h('progress', { class: 'nsis-p', max: 100, value: 100 }));
+          foot.append(h('span', { class: 'nsis-brand' }, 'Nullsoft Install System v3.08'), h('button', { class: 'w-btn', disabled: true }, '< Back'), h('button', { class: 'w-btn primary', onclick: () => done(ok) }, 'Close'), h('button', { class: 'w-btn', disabled: true }, 'Cancel'));
+        }
+      };
+      draw();
+      return h('div', { class: 'nsis' }, h('div', { class: 'wd-t' }, h('span', null, `${p.name} Uninstall`), h('span', { onclick: () => stage !== 1 && done(stage === 2) }, '✕')), head, body, foot);
+    });
+  })();
+}
+const appIcon = (p) => ({ 'Mozilla.Firefox': 'firefox', 'Mozilla.Thunderbird': 'w-thunderbird', 'Notepad++.Notepad++': 'w-notepadpp', 'WiresharkFoundation.Wireshark': 'w-wireshark', 'Insecure.Nmap': 'w-nmap', 'Google.Chrome': 'w-chrome' }[p.id] || 'w-programs');
+const isMsApp = (p) => /^Microsoft/i.test(p.publisher || '') || p.system;
+
 export function open(env, opts = {}) {
   if (opts.app === 'security') return openSecurity(env, opts);
   const sys = env.sys;
-  let page = PAGES.some((p) => p[0] === opts.page) ? opts.page : /update/.test(opts.page || '') ? 'update' : /remotedesktop|about/.test(opts.page || '') ? 'system' : /otherusers|accounts|yourinfo/.test(opts.page || '') ? 'accounts' : /apps|appsfeatures/.test(opts.page || '') ? 'apps' : /windowsdefender|privacy/.test(opts.page || '') ? 'privacy' : 'system';
-  let sub = opts.sub || (/remotedesktop/.test(opts.page || '') ? 'rdp' : /taskbar/.test(opts.page || '') ? 'taskbar' : null);
+  const W10 = winVer(sys).ver === 10;
+  let page = W10 && !opts.page ? 'home' : opts.page === 'activation' ? 'update' : PAGES.some((p) => p[0] === opts.page) ? opts.page : /update/.test(opts.page || '') ? 'update' : /remotedesktop|about/.test(opts.page || '') ? 'system' : /otherusers|accounts|yourinfo/.test(opts.page || '') ? 'accounts' : /apps|appsfeatures/.test(opts.page || '') ? 'apps' : /windowsdefender|privacy/.test(opts.page || '') ? 'privacy' : 'system';
+  let sub = opts.sub || (opts.page === 'activation' ? 'activation' : /remotedesktop/.test(opts.page || '') ? 'rdp' : /taskbar/.test(opts.page || '') ? 'taskbar' : null);
   if (/taskbar/.test(opts.page || '')) page = 'personalization';
   const nav = h('div', { class: 'wset-nav' });
   const main = h('div', { class: 'wset-main' });
@@ -30,15 +66,34 @@ export function open(env, opts = {}) {
   const q = h('input', { class: 'w-in wset-q', placeholder: 'Find a setting', title: 'Search settings', onkeydown: (e) => { if (e.key !== 'Enter') return; const v = lc(q.value); const hit = [['remote', 'system', 'rdp'], ['firewall', 'privacy', null], ['update', 'update', null], ['user', 'accounts', null], ['account', 'accounts', null], ['app', 'apps', null], ['uninstall', 'apps', null], ['defender', 'privacy', null], ['virus', 'privacy', null], ['about', 'system', 'about']].find(([k]) => v.includes(k)); if (hit) { page = hit[1]; sub = hit[2]; render(); } } });
   function drawNav() {
     clear(nav);
+    if (W10) {
+      nav.append(h('div', { class: 'wset-n' + (page === 'home' ? ' sel' : ''), title: 'Home', onclick: () => { page = 'home'; sub = null; render(); } }, h('span', { style: { width: '18px', textAlign: 'center' } }, '⌂'), h('span', null, 'Home')), q);
+      for (const [id, name, ic] of PAGES10) if (id !== 'devices') nav.append(h('div', { class: 'wset-n' + (page === id ? ' sel' : ''), title: name, onclick: () => { page = id; sub = null; render(); } }, icon(ic, 18), h('span', null, name)));
+      return;
+    }
     nav.append(h('div', { class: 'wset-user' }, icon('w-user', 60), h('div', null, h('div', { style: { fontWeight: 600 } }, u()?.full || env.user), h('div', { class: 'sub' }, 'Local Account'))), q);
     for (const [id, name, ic] of PAGES) nav.append(h('div', { class: 'wset-n' + (page === id ? ' sel' : ''), title: name, onclick: () => { page = id; sub = null; render(); } }, icon(ic, 18), h('span', null, name)));
   }
   const title = (t, crumb) => h('h1', null, crumb ? [h('span', { class: 'crumb', style: { cursor: 'pointer' }, onclick: () => { sub = null; render(); } }, crumb), '  ›  '] : null, t);
   function render() {
     drawNav(); clear(main);
-    const P = { system, network, personalization, apps, accounts, time, privacy, update }[page];
+    root.classList.toggle('w10', W10);
+    const P = { home, devices: home, system, network, personalization, apps, accounts, time, privacy, update }[page];
     P();
     win.setTitle('Settings');
+  }
+  // -------------------------------------------------------------- Home (Windows 10 tile grid)
+  function home() {
+    page = 'home';
+    add(h('div', { class: 'w10-home-h' }, h('h1', null, 'Windows Settings'), h('input', { class: 'w-in', placeholder: 'Find a setting', style: { width: '380px' }, onkeydown: (e) => { if (e.key === 'Enter') { q.value = e.target.value; q.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); } } })),
+      sys.win.activated ? null : h('div', { class: 'w10-act' }, 'Windows isn\'t activated. ', h('a', { class: 'w-link', onclick: () => { page = 'update'; sub = 'activation'; render(); } }, 'Activate Windows now.')),
+      h('div', { class: 'w10-grid' }, PAGES10.map(([id, name, ic, d]) => h('div', { class: 'w10-tile', title: name, onclick: () => { page = id === 'devices' ? 'system' : id; sub = null; render(); } }, icon(ic, 32), h('div', null, h('b', null, name), h('div', { class: 'sub' }, d))))));
+  }
+  function activation() {
+    add(title('Activation', W10 ? 'Update & Security' : 'System'),
+      h('h3', null, 'Windows'), card(null, 'Edition', winVer(sys).product), card(null, 'Activation', sys.win.activated ? 'Windows is activated' : 'Windows is not activated'),
+      sys.win.activated ? null : h('div', { class: 'wcard warn' }, icon('w-warn', 20), h('div', { class: 't' }, h('b', null, 'Windows reported that no product key was found on your device.'), h('div', { class: 'sub' }, 'Error code: 0xC004F213. A practice image does not need to be activated; activation is never a scored task.'))),
+      card('w-settings', 'Change product key', '', null, { onclick: () => env.ui.alert({ title: 'Activation', heading: 'Enter a product key', message: 'Product keys cannot be entered on this practice image.', icon: 'w-info' }) }));
   }
   // -------------------------------------------------------------- System
   function system() {
@@ -61,14 +116,15 @@ export function open(env, opts = {}) {
     if (sub === 'about') {
       add(title('About', 'System'), h('div', { class: 'wban' }, icon('w-thispc', 48), h('div', null, h('h2', null, sys.hostname), h('div', { class: 'sub' }, 'Simulated PC'))),
         h('h3', null, 'Device specifications'), card(null, 'Device name', sys.hostname), card(null, 'Processor', 'Intel(R) Core(TM) i5-1135G7 @ 2.40GHz'), card(null, 'Installed RAM', '8.00 GB'), card(null, 'System type', '64-bit operating system, x64-based processor'),
-        h('h3', null, 'Windows specifications'), card(null, 'Edition', WIN_VERSION.product), card(null, 'Version', WIN_VERSION.display), card(null, 'OS build', `${WIN_VERSION.build}.${WIN_VERSION.ubr}`),
+        h('h3', null, 'Windows specifications'), card(null, 'Edition', winVer(sys).product), card(null, 'Version', winVer(sys).display), card(null, 'OS build', `${winVer(sys).build}.${winVer(sys).ubr}`),
         card(null, 'Advanced system settings', 'System Properties: remote assistance, computer name', null, { onclick: () => env.openApp('sysdm') }));
       return;
     }
-    add(title('System'), h('div', { class: 'wban' }, icon('w-thispc', 48), h('div', null, h('h2', null, sys.hostname), h('div', { class: 'sub' }, WIN_VERSION.product))),
+    add(title('System'), h('div', { class: 'wban' }, icon('w-thispc', 48), h('div', null, h('h2', null, sys.hostname), h('div', { class: 'sub' }, winVer(sys).product))),
       card('w-thispc', 'Display', 'Monitors, brightness, night light, display profile'), card('w-volume', 'Sound', 'Volume levels, output, input, sound devices'), card('w-bell', 'Notifications', 'Alerts from apps and system'),
       card('w-thispc', 'Remote Desktop', 'Remote Desktop users, connection permissions', null, { onclick: () => { sub = 'rdp'; render(); } }),
-      card('w-info', 'About', 'Device specifications, rename PC, Windows specifications', null, { onclick: () => { sub = 'about'; render(); } }));
+      card('w-info', 'About', 'Device specifications, rename PC, Windows specifications', null, { onclick: () => { sub = 'about'; render(); } }),
+      W10 ? null : card('w-ok', 'Activation', 'Activation state, subscriptions, product key', null, { onclick: () => { page = 'update'; sub = 'activation'; render(); } }));
   }
   function network() {
     const fw = S.firewallAllOn(sys);
@@ -93,6 +149,7 @@ export function open(env, opts = {}) {
   // -------------------------------------------------------------- Apps
   function apps() {
     if (sub === 'optional') { env.openApp('features'); sub = null; }
+    let picked = null;
     const list = S.listPrograms(sys).slice().sort((a, b) => a.name.localeCompare(b.name));
     const search = h('input', { class: 'w-in', placeholder: 'Search apps', style: { width: '320px' }, oninput: () => draw() });
     const box = h('div');
@@ -100,17 +157,28 @@ export function open(env, opts = {}) {
       clear(box);
       const f = list.filter((p) => !search.value || lc(p.name).includes(lc(search.value)));
       box.append(h('div', { class: 'sub', style: { margin: '10px 0' } }, `${f.length} apps found`));
+      if (W10) {
+        for (const p of f) {
+          const row = h('div', { class: 'w10-app' + (picked === p.id ? ' sel' : ''), onclick: () => { picked = picked === p.id ? null : p.id; draw(); } },
+            h('div', { class: 'w10-app-r' }, icon(appIcon(p), 30), h('div', { style: { flex: 1 } }, h('div', null, p.name), h('div', { class: 'sub' }, p.publisher || '')), h('div', { style: { textAlign: 'right' } }, h('div', null, p.size ? `${p.size} MB` : ''), h('div', { class: 'sub' }, p.installed || ''))));
+          if (picked === p.id) row.append(h('div', { class: 'w10-app-a' }, h('span', { class: 'sub' }, p.version), h('span', { style: { flex: 1 } }), h('button', { class: 'w-btn', disabled: true }, 'Modify'), h('button', { class: 'w-btn', disabled: !!p.system, onclick: (e) => { e.stopPropagation(); uninstall(p, e.currentTarget); } }, 'Uninstall')));
+          box.append(row);
+        }
+        return;
+      }
       for (const p of f) {
         const more = h('button', { class: 'w-btn', title: 'More options', style: { minHeight: '28px', padding: '0 10px' }, onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left - 100, r.bottom, [{ label: 'Modify', disabled: true }, { label: 'Uninstall', disabled: !!p.system, action: () => uninstall(p) }]); } }, '⋯');
         box.append(card(p.id === 'Google.Chrome' ? 'w-chrome' : 'w-programs', p.name, `${p.version}  |  ${p.publisher || ''}  |  ${p.installed || ''}`, h('div', { style: { display: 'flex', gap: '14px', alignItems: 'center' } }, h('span', { class: 'sub' }, p.size ? `${p.size} MB` : ''), more)));
       }
     };
+    if (W10) { add(title('Apps & features'), h('div', { class: 'sub' }, 'Search, sort, and filter by drive. If you would like to uninstall or move an app, select it from the list.'), h('div', { style: { margin: '10px 0' } }, search), box); draw(); return; }
     add(title('Installed apps', 'Apps'), h('div', { style: { display: 'flex', gap: '10px', alignItems: 'center' } }, search, h('a', { class: 'w-link', onclick: () => env.openApp('features') }, 'Optional features'), h('a', { class: 'w-link', onclick: () => env.openApp('programs') }, 'Programs and Features')), box);
     draw();
   }
   async function uninstall(p) {
     const ok = await env.ui.confirm({ title: 'Uninstall', heading: `This app and its related info will be uninstalled.`, message: p.name, ok: 'Uninstall' });
     if (!ok) return;
+    if (!isMsApp(p)) { const done = await nsisUninstall(env, p, { elevated: opts.elevated }); if (done) { env.ui.toast({ title: 'Uninstalled', message: p.name, kind: 'info' }); env.desktop?.renderIcons?.(); } render(); return; }
     if (!(await admin(env, opts, `${p.name} Uninstaller`))) return;
     try { S.uninstallProgram(sys, p); env.ui.toast({ title: 'Uninstalled', message: p.name, kind: 'info' }); env.desktop?.renderIcons?.(); } catch (e) { env.ui.alert({ title: 'Uninstall', heading: 'Could not uninstall', message: e.message, icon: 'w-bad' }); }
     render();
@@ -169,12 +237,14 @@ export function open(env, opts = {}) {
   }
   // -------------------------------------------------------------- Windows Update
   function update() {
+    if (sub === 'activation') return activation();
     const pend = S.pendingUpdates(sys);
     const managed = !S.autoUpdatesOn(sys);
     const svc = S.getService(sys, 'wuauserv');
     const svcOff = svc.startType === 'Disabled';
     const status = h('div', { class: 'sub' });
-    add(title('Windows Update'));
+    add(title('Windows Update', W10 ? 'Update & Security' : null));
+    if (W10) add(h('div', { class: 'w10-subnav' }, ['Windows Update', 'Delivery Optimization', 'Windows Security', 'Backup', 'Troubleshoot', 'Recovery', 'Activation', 'Find my device', 'For developers'].map((t) => h('a', { class: 'w-link', onclick: () => { if (t === 'Activation') { sub = 'activation'; render(); } else if (t === 'Windows Security') env.openApp('security'); } }, t))));
     if (managed) add(h('div', { class: 'wcard warn' }, icon('w-warn', 20), h('div', { class: 't' }, h('b', null, '*Some settings are managed by your organization'), h('div', { class: 'sub' }, 'Automatic updates are turned off by a policy (HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU\\NoAutoUpdate).'))));
     add(h('div', { class: 'wban' }, icon(pend.length ? 'w-update' : 'w-ok', 56), h('div', { style: { flex: 1 } }, h('h2', null, svcOff ? 'There were problems installing some updates' : pend.length ? 'Updates available' : "You're up to date"), status),
       h('button', { class: 'w-btn primary', title: pend.length ? 'Install all available updates' : 'Check for updates', onclick: async () => {

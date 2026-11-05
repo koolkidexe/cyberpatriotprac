@@ -14,6 +14,24 @@ const SIM_NOTE = '<div class="note">Training site inside the CyberPatriot simula
 export const SITES = {
   // one-time pad / XOR practice tool (the browser draws it; see otpTool in browser.js)
   'otp-tools.example': { title: 'One-time pad encryption and decryption', tool: 'otp' },
+  // hex <-> text converter (drawn by hexTool in browser.js)
+  'hex-tools.example': { title: 'Hex to ASCII text converter', tool: 'hex' },
+  // practice copy of a vulnerability guide (paraphrased summaries only)
+  'msrc.example': {
+    title: 'Security Update Guide (practice copy)',
+    html: (path = '/') => {
+      const id = (String(path).match(/CVE-\d{4}-\d+/i) || [''])[0].toUpperCase();
+      const V = {
+        'CVE-2021-36934': ['Windows Elevation of Privilege Vulnerability', 'Important', 'Elevation of Privilege', 'Overly permissive access control lists on several system files, including the Security Account Manager (SAM) database, let a local user read them. An attacker who exploits this can run arbitrary code with SYSTEM privileges, then install programs, view, change or delete data, or create new accounts with full user rights.', 'Restrict access to the contents of %windir%\\system32\\config and delete Volume Shadow Copy Service shadow copies made before the restriction.'],
+        'CVE-2021-34527': ['Windows Print Spooler Remote Code Execution Vulnerability', 'Critical', 'Remote Code Execution', 'The Windows Print Spooler service improperly performs privileged file operations. An attacker who exploits this can run arbitrary code with SYSTEM privileges, then install programs, view, change or delete data, or create new accounts with full user rights.', 'Install the security update. If you cannot, stop and disable the Print Spooler service, or disable inbound remote printing through Group Policy.'],
+      };
+      const v = V[id];
+      const list = Object.keys(V).map((k) => `<li><a href="https://msrc.example/update-guide/vulnerability/${k}">${k}</a> – ${V[k][0]}</li>`).join('');
+      return page(v ? `${id} - Security Update Guide` : 'Security Update Guide', `<div style="background:#2f2f2f;color:#fff;padding:10px 30px;font-weight:600">Security Update Guide <span style="font-weight:400;color:#bbb">(practice copy)</span></div><div class="wrap">${v ? `<div style="color:#666">${id}</div><h1>${v[0]}</h1>
+<table style="border-collapse:collapse;margin:10px 0 20px">${[['Max severity', v[1]], ['Impact', v[2]], ['Released', 'July 2021']].map(([a, b]) => `<tr><td style="padding:4px 18px 4px 0;color:#666">${a}</td><td><b>${b}</b></td></tr>`).join('')}</table>
+<h2 style="font-weight:500;font-size:19px">Description</h2><p>${v[3]}</p><h2 style="font-weight:500;font-size:19px">Mitigations and workarounds</h2><p>${v[4]}</p>` : `<h1>Vulnerabilities</h1><p>Search by CVE number:</p><ul>${list}</ul>`}${SIM_NOTE}</div>`);
+    },
+  },
   'start.cyberpatriot-sim.test': {
     title: 'Simulator start page',
     html: () => page('Simulator start page', `<div class="wrap"><h1>Browser practice sites</h1>
@@ -24,6 +42,8 @@ export const SITES = {
 <li><a href="http://account-verify.example/login">account-verify.example</a> is a fake phishing page. With Safe Browsing on, the browser shows a red warning first.</li>
 <li><a href="http://free-games.example/">free-games.example</a> offers a dangerous download. With Safe Browsing on, the download is blocked.</li>
 <li><a href="http://intranet.apex.example/">intranet.apex.example</a> is a harmless company intranet page.</li>
+<li><a href="https://hex-tools.example/">hex-tools.example</a> converts hexadecimal to readable text and back.</li>
+<li><a href="https://msrc.example/update-guide/vulnerability/CVE-2021-36934">msrc.example</a> is a practice copy of a security update guide (CVE pages).</li>
 <li><a href="https://otp-tools.example/">otp-tools.example</a> is a one-time pad (XOR) encryption and decryption tool for forensics questions.</li>
 </ul>${SIM_NOTE}</div>`),
   },

@@ -18,7 +18,7 @@ const LOADERS = {
   printers: () => import('./generic.js'),
   generic: () => import('./generic.js'),
   // Windows 11
-  chrome: () => import('./browser.js'),
+  chrome: () => import('./browser.js'), thunderbird: () => import('./win-thunderbird.js'), uacsettings: () => import('./win-control.js'),
   explorer: () => import('./win-explorer.js'),
   notepad: () => import('./win-notepad.js'),
   compmgmt: () => import('./win-mmc.js'), lusrmgr: () => import('./win-mmc.js'), services: () => import('./win-mmc.js'), shares: () => import('./win-mmc.js'), taskschd: () => import('./win-mmc.js'), secpol: () => import('./win-mmc.js'),

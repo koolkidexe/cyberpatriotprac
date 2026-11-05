@@ -2,7 +2,13 @@
 import { System } from '../core/system.js';
 import { BUILTIN_GROUPS, POLICY_DEFAULTS, AUDIT_CATEGORIES, KEYS, regSet, addUser, spawnFor } from './state.js';
 
-export const WIN_VERSION = { product: 'Windows 11 Pro', display: '23H2', build: '22631', ubr: '2715', edition: 'Professional' };
+export const WIN_VERSIONS = {
+  11: { ver: 11, product: 'Windows 11 Pro', display: '23H2', build: '22631', ubr: '2715', edition: 'Professional', image: 'Windows 11' },
+  10: { ver: 10, product: 'Windows 10 Pro', display: '22H2', build: '19045', ubr: '3693', edition: 'Professional', image: 'Windows 10' },
+};
+export const WIN_VERSION = WIN_VERSIONS[11];
+/** Version info of this machine (Windows 10 or 11 image). */
+export const winVer = (sys) => WIN_VERSIONS[sys?.win?.ver === 10 ? 10 : 11];
 
 function mkdirs(sys, list) { for (const d of list) if (!sys.vfs.exists(d)) sys.vfs.mkdir(d, { parents: true, mode: 0o777 }); }
 export function putFile(sys, path, data = '', { size, days = 30 } = {}) {
@@ -59,7 +65,8 @@ const SERVICES = [
 ];
 
 export const PROGRAMS = [
-  { id: 'Google.Chrome', name: 'Google Chrome', publisher: 'Google LLC', version: '119.0.6045.160', latest: '120.0.6099.130', size: 412, dir: '/Program Files/Google/Chrome/Application', exe: 'chrome.exe' },
+  { id: 'Mozilla.Firefox', name: 'Mozilla Firefox (x64 en-US)', publisher: 'Mozilla', version: '115.0.2', latest: '133.0.3', size: 236, dir: '/Program Files/Mozilla Firefox', exe: 'firefox.exe' },
+  { id: 'Mozilla.Thunderbird', name: 'Mozilla Thunderbird (x64 en-US)', publisher: 'Mozilla', version: '102.13.0', latest: '128.5.2', size: 228, dir: '/Program Files/Mozilla Thunderbird', exe: 'thunderbird.exe' },
   { id: 'Notepad++.Notepad++', name: 'Notepad++ (64-bit x64)', publisher: 'Notepad++ Team', version: '8.5.8', latest: '8.6.2', size: 14, dir: '/Program Files/Notepad++', exe: 'notepad++.exe' },
   { id: '7zip.7zip', name: '7-Zip 23.01 (x64)', publisher: 'Igor Pavlov', version: '23.01', latest: '23.01', size: 5, dir: '/Program Files/7-Zip', exe: '7zFM.exe' },
   { id: 'Microsoft.Edge', name: 'Microsoft Edge', publisher: 'Microsoft Corporation', version: '120.0.2210.91', latest: '120.0.2210.91', size: 650, dir: '/Program Files (x86)/Microsoft/Edge/Application', exe: 'msedge.exe', system: true },
@@ -69,6 +76,13 @@ export const PROGRAMS = [
   { id: 'Microsoft.WindowsPCHealthCheck', name: 'Windows PC Health Check', publisher: 'Microsoft Corporation', version: '3.6.2204.08001', latest: '3.6.2204.08001', size: 11 },
 ];
 
+const UPDATES_10 = [
+  { kb: 'KB5034122', title: '2024-01 Cumulative Update for Windows 10 Version 22H2 for x64-based Systems (KB5034122)', size: 651, security: true },
+  { kb: 'KB5034275', title: '2024-01 Cumulative Update for .NET Framework 3.5, 4.8 and 4.8.1 for Windows 10 Version 22H2 for x64 (KB5034275)', size: 68, security: true },
+  { kb: 'KB890830', title: 'Windows Malicious Software Removal Tool x64 - v5.120 (KB890830)', size: 62, security: true },
+  { kb: 'KB2267602', title: 'Security Intelligence Update for Microsoft Defender Antivirus - KB2267602 (Version 1.403.1205.0)', size: 89, security: true },
+  { kb: 'KB5005463', title: 'Windows Update for Windows 10 Version 22H2 for x64-based Systems (KB5005463)', size: 4, security: false },
+];
 const UPDATES = [
   { kb: 'KB5033375', title: '2023-12 Cumulative Update for Windows 11 Version 23H2 for x64-based Systems (KB5033375)', size: 638, security: true },
   { kb: 'KB5033920', title: '2023-12 Cumulative Update for .NET Framework 3.5 and 4.8.1 for Windows 11, version 23H2 for x64 (KB5033920)', size: 72, security: true },
@@ -79,15 +93,18 @@ const UPDATES = [
 ];
 const INSTALLED_UPDATES = ['KB5027397', 'KB5031354', 'KB5032190'];
 
-export function buildWindows11({ now = () => Date.now(), rng = Math.random, hostname = 'DESKTOP-CP11' } = {}) {
+export function buildWindows11({ now = () => Date.now(), rng = Math.random, hostname, ver = 11 } = {}) {
+  const V = WIN_VERSIONS[ver === 10 ? 10 : 11];
+  hostname = hostname || (V.ver === 10 ? 'DESKTOP-CP10' : 'DESKTOP-CP11');
   const sys = new System({ now, rng, hostname });
   sys.os = 'windows';
   sys.win = {
+    ver: V.ver,
     users: [], groups: [], nextRid: 1001, policy: { ...POLICY_DEFAULTS },
     audit: Object.fromEntries(AUDIT_CATEGORIES.map((c) => [c, { success: false, failure: false }])),
     rights: {}, reg: {}, services: [], firewall: { Domain: { enabled: true }, Private: { enabled: true }, Public: { enabled: true } },
     fwRules: [], defender: { realtime: true, cloud: true, sampleSubmission: true, tamper: true, pua: true, smartscreenApps: 'Warn', smartscreenEdge: true },
-    programs: PROGRAMS.map((p) => ({ ...p, installed: '11/14/2023' })), updates: UPDATES.map((u) => ({ ...u, installed: false })), installedUpdates: [...INSTALLED_UPDATES],
+    programs: PROGRAMS.map((p) => ({ ...p, installed: '11/14/2023' })), updates: (V.ver === 10 ? UPDATES_10 : UPDATES).map((u) => ({ ...u, installed: false })), installedUpdates: [...INSTALLED_UPDATES],
     features: {
       SMB1Protocol: { state: 'Disabled', display: 'SMB 1.0/CIFS File Sharing Support' }, TelnetClient: { state: 'Disabled', display: 'Telnet Client' }, TFTP: { state: 'Disabled', display: 'TFTP Client' },
       'IIS-WebServerRole': { state: 'Disabled', display: 'Internet Information Services' }, 'IIS-FTPServer': { state: 'Disabled', display: 'FTP Server' },
@@ -139,7 +156,7 @@ export function buildWindows11({ now = () => Date.now(), rng = Math.random, host
   r(KEYS.runUser, 'OneDrive', '"C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe" /background', 'REG_SZ');
   r(KEYS.winlogon, 'Shell', 'explorer.exe', 'REG_SZ'); r(KEYS.winlogon, 'Userinit', 'C:\\Windows\\system32\\userinit.exe,', 'REG_SZ'); r(KEYS.winlogon, 'AutoAdminLogon', '0', 'REG_SZ');
   const cv = 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion';
-  r(cv, 'ProductName', 'Windows 10 Pro', 'REG_SZ'); r(cv, 'DisplayVersion', WIN_VERSION.display, 'REG_SZ'); r(cv, 'CurrentBuild', WIN_VERSION.build, 'REG_SZ'); r(cv, 'UBR', Number(WIN_VERSION.ubr)); r(cv, 'EditionID', WIN_VERSION.edition, 'REG_SZ'); r(cv, 'RegisteredOwner', 'student', 'REG_SZ');
+  r(cv, 'ProductName', 'Windows 10 Pro', 'REG_SZ'); r(cv, 'DisplayVersion', V.display, 'REG_SZ'); r(cv, 'CurrentBuild', V.build, 'REG_SZ'); r(cv, 'UBR', Number(V.ubr)); r(cv, 'EditionID', V.edition, 'REG_SZ'); r(cv, 'RegisteredOwner', 'student', 'REG_SZ');
   r('HKLM\\SYSTEM\\CurrentControlSet\\Control\\ComputerName\\ComputerName', 'ComputerName', hostname, 'REG_SZ');
   r('HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer', 'SmartScreenEnabled', 'Warn', 'REG_SZ');
   r('HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update', 'AUOptions', 4);

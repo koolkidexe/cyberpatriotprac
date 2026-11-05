@@ -20,13 +20,16 @@ export function open(env, opts = {}) {
   const upd = () => { tabT.textContent = (dirty() ? '● ' : '') + name(); win.setTitle(`${dirty() ? '*' : ''}${name()} - Notepad`); st.chars.textContent = `${ta.value.length} characters`; };
   const pos = () => { const b = ta.value.slice(0, ta.selectionStart); const ln = b.split('\n').length; st.pos.textContent = `Ln ${ln}, Col ${b.length - b.lastIndexOf('\n')}`; };
   const menu = (label, items) => h('div', { title: `${label} menu`, onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom + 2, items()); } }, label);
-  const root = h('div', { class: 'wnp' },
-    h('div', { class: 'wnp-tabs' }, h('div', { class: 'wnp-tab' }, icon('w-notepad', 16), tabT)),
+  const W10 = env.winVer === 10;
+  const root = h('div', { class: 'wnp' + (W10 ? ' wnp10' : '') },
+    W10 ? null : h('div', { class: 'wnp-tabs' }, h('div', { class: 'wnp-tab' }, icon('w-notepad', 16), tabT)),
     h('div', { class: 'wnp-menu' },
       menu('File', () => [{ label: 'New tab', hint: 'Ctrl+N', action: () => env.openApp('notepad') }, { label: 'Open…', hint: 'Ctrl+O', action: openDlg }, { label: 'Save', hint: 'Ctrl+S', action: () => save() }, { label: 'Save as…', action: () => save(true) }, 'sep', { label: 'Exit', action: () => win.close() }]),
       menu('Edit', () => [{ label: 'Select all', hint: 'Ctrl+A', action: () => ta.select() }, { label: 'Time/Date', hint: 'F5', action: () => insert(new Date(sys.now()).toLocaleString()) }]),
-      menu('View', () => [{ label: 'Zoom in', action: () => z(10) }, { label: 'Zoom out', action: () => z(-10) }, { label: 'Restore default zoom', action: () => z(0) }, { label: `Word wrap ${ta.style.whiteSpace === 'pre-wrap' ? '✓' : ''}`, action: () => { ta.style.whiteSpace = ta.style.whiteSpace === 'pre-wrap' ? 'pre' : 'pre-wrap'; } }])),
-    ta, h('div', { class: 'wnp-status' }, st.pos, st.chars, h('span', { style: { flex: 1 } }), st.zoom, st.eol, st.enc));
+      W10 ? menu('Format', () => [{ label: `${ta.style.whiteSpace === 'pre-wrap' ? '✓ ' : ''}Word Wrap`, action: () => { ta.style.whiteSpace = ta.style.whiteSpace === 'pre-wrap' ? 'pre' : 'pre-wrap'; } }, { label: 'Font...', disabled: true }]) : null,
+      menu('View', () => W10 ? [{ label: 'Zoom › Zoom In', hint: 'Ctrl+Plus', action: () => z(10) }, { label: 'Zoom › Zoom Out', hint: 'Ctrl+Minus', action: () => z(-10) }, { label: 'Zoom › Restore Default Zoom', action: () => z(0) }, { label: '✓ Status Bar', disabled: true }] : [{ label: 'Zoom in', action: () => z(10) }, { label: 'Zoom out', action: () => z(-10) }, { label: 'Restore default zoom', action: () => z(0) }, { label: `Word wrap ${ta.style.whiteSpace === 'pre-wrap' ? '✓' : ''}`, action: () => { ta.style.whiteSpace = ta.style.whiteSpace === 'pre-wrap' ? 'pre' : 'pre-wrap'; } }]),
+    W10 ? menu('Help', () => [{ label: 'View Help', disabled: true }, { label: 'Send Feedback', disabled: true }, 'sep', { label: 'About Notepad', action: () => env.ui.alert({ title: 'About Notepad', heading: 'Microsoft Windows', message: `Version 22H2 (OS Build 19045)\n© Microsoft Corporation. All rights reserved.`, icon: 'w-notepad' }) }]) : null),
+    ta, h('div', { class: 'wnp-status' }, W10 ? h('span', { style: { flex: 1 } }) : null, st.pos, W10 ? null : st.chars, W10 ? null : h('span', { style: { flex: 1 } }), st.zoom, st.eol, st.enc));
   const win = env.wm.open({ title: `${name()} - Notepad`, icon: 'w-notepad', width: 760, height: 520, appId: 'notepad', content: root });
   function z(d) { zoom = d === 0 ? 100 : Math.max(50, Math.min(300, zoom + d)); ta.style.fontSize = (15 * zoom) / 100 + 'px'; st.zoom.textContent = `${zoom}%`; }
   function insert(t) { const s = ta.selectionStart; ta.value = ta.value.slice(0, s) + t + ta.value.slice(ta.selectionEnd); upd(); }

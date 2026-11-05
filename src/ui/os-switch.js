@@ -4,13 +4,14 @@ import { h } from './dom.js';
 export const OS_LIST = [
   { id: 'mint', name: 'Linux Mint 21.3', sub: 'Cinnamon desktop · Mint Practice Round 1', color: '#8fa876' },
   { id: 'ubuntu', name: 'Ubuntu 22.04 LTS', sub: 'GNOME desktop · Ubuntu Practice Round 1', color: '#e95420' },
+  { id: 'windows10', name: 'Windows 10 Pro', sub: '22H2 · Windows 10 Practice Round 1', color: '#1f6bb3' },
   { id: 'windows', name: 'Windows 11 Pro', sub: '23H2 · Windows Practice Round 1', color: '#3b8ed8' },
 ];
 
 /** Popup content: one row per image, current one marked. Progress is saved separately per image. */
 export function osSwitchContent(env, close) {
   const rows = OS_LIST.map((o) => {
-    const cur = o.id === env.os;
+    const cur = o.id === (env.osId || env.os);
     return h('div', { class: 'row os-row' + (cur ? ' cur' : ''), title: cur ? 'You are using this image right now' : `Reboot into ${o.name} (your progress here is saved)`,
       onclick: () => { if (!cur) { close?.(); env.switchOs(o.id); } } },
     h('span', { class: 'os-dot', style: { background: o.color } }),

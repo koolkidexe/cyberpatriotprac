@@ -17,7 +17,8 @@ const lc = (s) => String(s).toLowerCase();
 export const WIN_APPS = [
   { id: 'settings', name: 'Settings', icon: 'w-settings', pin: 1, kw: 'control accounts apps update privacy remote desktop' },
   { id: 'explorer', name: 'File Explorer', icon: 'w-explorer', pin: 2, kw: 'files folders this pc' },
-  { id: 'chrome', name: 'Google Chrome', icon: 'w-chrome', pin: 3, kw: 'browser web internet' },
+  { id: 'firefox', name: 'Firefox', icon: 'firefox', pin: 3, kw: 'browser web internet mozilla' },
+  { id: 'thunderbird', name: 'Mozilla Thunderbird', icon: 'w-thunderbird', pin: 11, kw: 'mail email thunderbird' },
   { id: 'terminal', name: 'Terminal', icon: 'w-terminal', pin: 4, kw: 'powershell cmd command prompt shell console', elevatable: true },
   { id: 'notepad', name: 'Notepad', icon: 'w-notepad', pin: 5, kw: 'text editor' },
   { id: 'security', name: 'Windows Security', icon: 'w-security', pin: 6, kw: 'defender antivirus virus firewall smartscreen' },
@@ -51,13 +52,19 @@ export class WinDesktop {
     this.panel = document.getElementById('panel');
     this.menuEl = document.getElementById('menu');
     this.flyout = null;
+    this.v10 = env.winVer === 10;
+    document.body.classList.toggle('win10', this.v10);
     env.elevate = (o) => elevate(env, o);
+    // "Activate Windows" watermark (the practice images are never activated)
+    this.wm10 = h('div', { class: 'wact', title: 'Go to Settings to activate Windows.', ondblclick: () => env.openApp('settings', { page: 'activation' }) }, h('div', null, 'Activate Windows'), h('div', null, 'Go to Settings to activate Windows.'));
+    this.desk.append(this.wm10);
     this.build();
     env.wm.onChange(() => this.renderTasks());
     this.desk.addEventListener('mousedown', (e) => { if (e.target === this.desk || e.target === this.iconsEl) { this.select(null); this.closeAll(); } });
     this.desk.addEventListener('contextmenu', (e) => { if (e.target === this.desk || e.target === this.iconsEl) { e.preventDefault(); this.deskMenu(e); } });
     document.addEventListener('mousedown', (e) => {
       if (this.menuEl.classList.contains('open') && !this.menuEl.contains(e.target) && !e.target.closest('.wtb-start, .wtb-search')) this.closeStart();
+      if (this.ac && !this.ac.contains(e.target) && !e.target.closest('.wtb-ac')) this.closeAC();
       if (this.flyout && !this.flyout.contains(e.target) && !e.target.closest('.wtb-tray')) this.closeFlyout();
     }, true);
     document.addEventListener('keydown', (e) => { if ((e.metaKey || e.altKey && e.ctrlKey) && e.key.toLowerCase() === 'r') { e.preventDefault(); env.openApp('run'); return; } if (e.key === 'Meta' || (e.key === 'Escape' && this.menuEl.classList.contains('open'))) { if (e.key === 'Escape') this.closeStart(); } });
@@ -70,6 +77,7 @@ export class WinDesktop {
   /** Taskbar look follows the real registry values: TaskbarAl (0 = left, 1 = centre) and SearchboxTaskbarMode (0 hidden, 1 icon, 2 box). */
   layout() {
     const sys = this.env.sys;
+    if (this.v10) return { left: true, search: Number(S.regGet(sys, 'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Search', 'SearchboxTaskbarMode') ?? 2) };
     const al = Number(S.regGet(sys, 'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced', 'TaskbarAl') ?? 1);
     const sm = Number(S.regGet(sys, 'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Search', 'SearchboxTaskbarMode') ?? 2);
     return { left: al === 0, search: sm };
@@ -78,20 +86,23 @@ export class WinDesktop {
     const env = this.env;
     clear(this.panel);
     const L = this.layout();
-    this.panel.className = 'wtb' + (L.left ? ' left' : '');
+    this.panel.className = 'wtb' + (L.left ? ' left' : '') + (this.v10 ? ' w10' : '');
     this.menuEl.classList.toggle('left', L.left);
     const tbBtn = (cls, ic, title, onclick, extra) => h('button', { class: `wtb-b ${cls}`, title, onclick, ...extra }, typeof ic === 'string' ? icon(ic, 24) : ic);
-    this.startBtn = tbBtn('wtb-start', 'w-start', 'Start', () => this.toggleStart());
+    this.startBtn = tbBtn('wtb-start', this.v10 ? icon('w-start-white', 18) : 'w-start', 'Start', () => this.toggleStart());
     const glass = '<svg viewBox="0 0 48 48" width="16" height="16"><circle cx="21" cy="21" r="11" fill="none" stroke="currentColor" stroke-width="4"/><path d="M29 29l11 11" stroke="currentColor" stroke-width="4.500" stroke-linecap="round"/></svg>';
-    this.searchBox = L.search === 2 ? h('div', { class: 'wtb-search', title: 'Search', onclick: () => this.openStart({ search: true }) }, h('span', { class: 'wsi', html: glass }), h('span', null, L.left ? 'Type here to search' : 'Search'))
+    if (this.v10 && L.search === 2) {
+      this.sq = h('input', { class: 'wtb-sq', placeholder: 'Type here to search', title: 'Type here to search', onfocus: () => this.openSearch10(), oninput: () => this.openSearch10(), onkeydown: (e) => { if (e.key === 'Enter') { const f = this.menuEl.querySelector('.w10s-best'); if (f) f.click(); } if (e.key === 'Escape') { this.closeStart(); this.sq.blur(); } } });
+      this.searchBox = h('div', { class: 'wtb-search' }, h('span', { class: 'wsi', html: glass }), this.sq);
+    } else this.searchBox = L.search === 2 ? h('div', { class: 'wtb-search', title: 'Search', onclick: () => this.openStart({ search: true }) }, h('span', { class: 'wsi', html: glass }), h('span', null, L.left ? 'Type here to search' : 'Search'))
       : L.search === 1 ? h('button', { class: 'wtb-b wtb-sicon', title: 'Search', onclick: () => this.openStart({ search: true }), html: glass.replace(/16/g, '20') }) : null;
     this.taskViewBtn = tbBtn('wtb-tv', 'w-taskview', 'Task View', () => this.taskView());
     const has = (id) => S.listPrograms(env.sys).some((p) => p.id === id);
     // pinned like the competition image: Chrome, Wireshark, File Explorer, Notepad++, Windows PowerShell, Settings
-    this.pinned = [
-      has('Google.Chrome') && { id: 'chrome', icon: 'w-chrome', name: 'Google Chrome' },
-      has('WiresharkFoundation.Wireshark') && { id: 'wireshark', icon: 'w-wireshark', name: 'Wireshark' },
+    this.pinned = this.v10 ? [{ id: 'explorer', icon: 'w-explorer', name: 'File Explorer' }, has('Mozilla.Firefox') && { id: 'firefox', icon: 'firefox', name: 'Firefox' }].filter(Boolean) : [
       { id: 'explorer', icon: 'w-explorer', name: 'File Explorer' },
+      has('Mozilla.Firefox') && { id: 'firefox', icon: 'firefox', name: 'Firefox' },
+      has('WiresharkFoundation.Wireshark') && { id: 'wireshark', icon: 'w-wireshark', name: 'Wireshark' },
       has('Notepad++.Notepad++') && { id: 'notepadpp', icon: 'w-notepadpp', name: 'Notepad++' },
       { id: 'terminal', icon: 'w-powershell', name: 'Windows PowerShell' },
       { id: 'settings', icon: 'w-settings', name: 'Settings' },
@@ -105,7 +116,12 @@ export class WinDesktop {
     this.qsBtn = h('button', { class: 'wtb-tray wtb-qs', title: 'Network  Internet access\nSpeakers: 64%', onclick: () => this.quickSettings() }, icon('w-network-tray', 16), this.volIcon = icon('w-volume', 16));
     this.clock = h('button', { class: 'wtb-tray wtb-clock', title: '', onclick: () => this.calendar() }, h('div', { class: 'ct' }), h('div', { class: 'cd' }));
     this.bell = h('button', { class: 'wtb-tray wtb-ti', title: 'Notifications', onclick: () => this.calendar() }, icon('w-bell', 16));
-    this.tray = h('div', { class: 'wtb-right' }, this.hidden, this.shuffleTi, this.scoreTi, this.qsBtn, this.clock, this.bell, h('div', { class: 'wtb-peek', title: 'Show desktop', onclick: () => env.wm.showDesktop() }));
+    if (this.v10) {
+      this.qsBtn = h('button', { class: 'wtb-tray wtb-qs', title: 'Network\nInternet access', onclick: () => this.quickSettings() }, icon('w-network-tray', 16));
+      this.volBtn = h('button', { class: 'wtb-tray wtb-ti', title: 'Speakers: 64%', onclick: () => this.quickSettings() }, this.volIcon = icon('w-volume', 16));
+      this.bell = h('button', { class: 'wtb-tray wtb-ac', title: 'No new notifications', onclick: () => this.actionCenter() }, h('span', { html: '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M2 2.5h12v8.5H6l-3 3v-3H2z" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>' }));
+      this.tray = h('div', { class: 'wtb-right' }, this.hidden, this.shuffleTi, this.scoreTi, this.qsBtn, this.volBtn, this.clock, this.bell, h('div', { class: 'wtb-peek', title: 'Show desktop', onclick: () => env.wm.showDesktop() }));
+    } else this.tray = h('div', { class: 'wtb-right' }, this.hidden, this.shuffleTi, this.scoreTi, this.qsBtn, this.clock, this.bell, h('div', { class: 'wtb-peek', title: 'Show desktop', onclick: () => env.wm.showDesktop() }));
     this.panel.append(h('div', { class: 'wtb-left' }), this.centre, this.tray);
     this.panel.oncontextmenu = (e) => { if (e.target.closest('.wtb-app, .wtb-start')) return; e.preventDefault(); env.ui.showMenu(e.clientX, e.clientY - 120, [{ label: 'Task Manager', action: () => env.openApp('taskmgr') }, 'sep', { label: 'Taskbar settings', action: () => env.openApp('settings', { page: 'personalization', sub: 'taskbar' }) }]); };
     this.startBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); this.winX(e); });
@@ -175,8 +191,8 @@ export class WinDesktop {
 
   // ---------------------------------------------------------------- start menu
   toggleStart() { if (this.menuEl.classList.contains('open')) this.closeStart(); else this.openStart(); }
-  closeStart() { this.menuEl.classList.remove('open'); }
-  closeAll() { this.closeStart(); this.closeFlyout(); }
+  closeStart() { const was = this.menuEl.classList.contains('w10ss'); this.menuEl.classList.remove('open', 'w10ss', 'w10sm'); if (was && this.sq) { this.sq.value = ''; this.sq.blur(); } }
+  closeAll() { this.closeStart(); this.closeFlyout(); this.closeAC?.(); }
   launch(a, { admin = false } = {}) {
     this.closeAll();
     if (admin || a.admin) return elevate(this.env, { app: a.id, ...(a.opts || {}) });
@@ -193,6 +209,7 @@ export class WinDesktop {
   }
   openStart({ search = false } = {}) {
     const env = this.env;
+    if (this.v10) { if (search && this.sq) { this.sq.focus(); return this.openSearch10(); } return this.openStart10(); }
     this.closeFlyout();
     const m = this.menuEl;
     clear(m);
@@ -249,6 +266,109 @@ export class WinDesktop {
     void search;
   }
 
+  // ---------------------------------------------------------------- Windows 10 Start menu, search and Action Center
+  apps10() { return WIN_APPS.filter((a) => a.id !== 'terminal' || a.alias).filter((a) => !a.needs || S.listPrograms(this.env.sys).some((p) => p.id === a.needs)); }
+  openStart10() {
+    const env = this.env;
+    this.closeFlyout(); this.closeAC();
+    const m = this.menuEl; clear(m);
+    m.className = 'wsm open w10sm';
+    const A = Object.fromEntries(this.apps10().map((a) => [a.name, a]));
+    const FOLDERS = {
+      'Windows Accessories': ['Notepad'],
+      'Windows Administrative Tools': ['Computer Management', 'Local Security Policy', 'Registry Editor', 'Services', 'System Properties', 'Task Scheduler'],
+      'Windows Ease of Access': [],
+      'Windows PowerShell': ['Windows PowerShell'],
+      'Windows System': ['Command Prompt', 'Control Panel', 'File Explorer', 'Run', 'Task Manager'],
+    };
+    const inFolder = new Set(Object.values(FOLDERS).flat());
+    const top = ['Firefox', 'Mozilla Thunderbird', 'Notepad++', 'Settings', 'Windows Security', 'Wireshark'].filter((n) => A[n]);
+    const entries = [...top.map((n) => ({ n, a: A[n] })), ...Object.keys(FOLDERS).map((n) => ({ n, folder: FOLDERS[n].filter((x) => A[x]) }))].sort((x, y) => x.n.localeCompare(y.n));
+    void inFolder;
+    const open = new Set();
+    const list = h('div', { class: 'w10sm-list' });
+    const row = (a, ind) => h('button', { class: 'w10sm-i' + (ind ? ' ind' : ''), title: a.name, onclick: () => this.launch(a), oncontextmenu: (e) => this.appMenu(e, a) }, icon(a.icon, 24), h('span', null, a.name));
+    const draw = () => {
+      clear(list);
+      let last = '';
+      for (const e of entries) {
+        const L = /^[a-z]/i.test(e.n) ? e.n[0].toUpperCase() : '#';
+        if (L !== last) { list.append(h('div', { class: 'w10sm-letter' }, L)); last = L; }
+        if (e.a) list.append(row(e.a));
+        else {
+          const isOpen = open.has(e.n);
+          list.append(h('button', { class: 'w10sm-i', title: e.n, onclick: () => { isOpen ? open.delete(e.n) : open.add(e.n); draw(); } }, icon('w-folder', 24), h('span', { style: { flex: 1 } }, e.n), h('span', { class: 'w10sm-chev' }, isOpen ? '⌃' : '⌄')));
+          if (isOpen) for (const n of e.folder) list.append(row(A[n], true));
+        }
+      }
+    };
+    const u = S.getUser(env.sys, env.user);
+    const rb = (ic, t, fn) => h('button', { class: 'w10sm-rb', title: t, onclick: fn }, typeof ic === 'string' && ic.startsWith('w-') ? icon(ic, 18) : h('span', null, ic));
+    const rail = h('div', { class: 'w10sm-rail' },
+      rb('☰', 'Expand', () => m.classList.toggle('wide')), h('div', { style: { flex: 1 } }),
+      rb('w-user', u?.full || env.user, (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.right, r.top - 90, [{ label: 'Change account settings', action: () => { this.closeAll(); env.openApp('settings', { page: 'accounts' }); } }, { label: 'Lock', action: () => { this.closeAll(); env.lock(); } }, { label: 'Sign out', action: () => { this.closeAll(); env.logout(); } }]); }),
+      rb('w-folder-docs', 'Documents', () => { this.closeAll(); env.openApp('explorer', { path: `/Users/${env.user}/Documents` }); }),
+      rb('w-folder-pictures', 'Pictures', () => { this.closeAll(); env.openApp('explorer', { path: `/Users/${env.user}/Pictures` }); }),
+      rb('w-settings', 'Settings', () => { this.closeAll(); env.openApp('settings'); }),
+      rb('w-power', 'Power', (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.right, r.top - 90, [{ label: 'Sleep', action: () => { this.closeAll(); env.lock(); } }, { label: 'Shut down', action: () => { this.closeAll(); env.power('poweroff'); } }, { label: 'Restart', action: () => { this.closeAll(); env.power('reboot'); } }]); }));
+    const tile = (n, cls = '') => A[n] ? h('button', { class: 'w10sm-tile ' + cls, title: n, onclick: () => this.launch(A[n]), oncontextmenu: (e) => this.appMenu(e, A[n]) }, icon(A[n].icon, cls ? 40 : 32), h('span', null, n)) : null;
+    const tiles = h('div', { class: 'w10sm-tiles' }, h('div', { class: 'w10sm-th' }, 'Productivity'), h('div', { class: 'w10sm-tg' }, tile('Firefox', 'wide'), tile('Mozilla Thunderbird'), tile('Settings'), tile('Windows Security'), tile('File Explorer'), tile('Control Panel')),
+      h('div', { class: 'w10sm-th' }, 'Tools'), h('div', { class: 'w10sm-tg' }, tile('Computer Management'), tile('Local Security Policy'), tile('Services'), tile('Windows PowerShell')));
+    m.append(rail, list, tiles);
+    draw();
+  }
+  openSearch10() {
+    const env = this.env;
+    this.closeFlyout(); this.closeAC();
+    const m = this.menuEl;
+    const q = lc(this.sq?.value.trim() || '');
+    if (!m.classList.contains('w10ss')) { clear(m); m.className = 'wsm open w10ss'; this.ssTab = 'All'; }
+    clear(m);
+    const apps = q ? this.apps10().filter((a) => lc(a.name).includes(q) || lc(a.kw || '').includes(q) || lc(a.id).startsWith(q)) : [];
+    const files = [];
+    if (q) { const walk = (dir, d) => { if (d > 4 || files.length > 8) return; let ns = []; try { ns = env.sys.vfs.readdir(dir); } catch { return; } for (const n of ns) { const p = `${dir}/${n}`; if (n === 'AppData') continue; if (lc(n).includes(q)) files.push(p); if (env.sys.vfs.isDir(p)) walk(p, d + 1); } }; walk(`/Users/${env.user}`, 0); }
+    const tabs = h('div', { class: 'w10ss-tabs' }, ['All', 'Apps', 'Documents', 'Settings', 'Photos', 'More ⌄'].map((t) => h('button', { class: this.ssTab === t ? 'on' : '', onclick: () => { this.ssTab = t; this.openSearch10(); } }, t)), h('span', { style: { flex: 1 } }), h('button', { title: 'Options' }, '⋯'));
+    const T = this.ssTab;
+    const showApps = T === 'All' || T === 'Apps'; const showDocs = T === 'All' || T === 'Documents';
+    const list = h('div', { class: 'w10ss-list' });
+    const best = showApps ? apps[0] : showDocs && files[0] ? { file: files[0] } : null;
+    let detail = null;
+    if (!q) {
+      list.append(h('div', { class: 'wsm-h' }, 'Top apps'), h('div', { class: 'w10ss-top' }, this.apps10().filter((a) => ['File Explorer', 'Firefox', 'Settings', 'Windows Security', 'Windows PowerShell'].includes(a.name)).map((a) => h('button', { title: a.name, onclick: () => this.launch(a) }, icon(a.icon, 32), h('span', null, a.name)))),
+        h('div', { class: 'wsm-h' }, 'Recent'), h('div', { class: 'sub', style: { padding: '0 12px' } }, 'Type to search apps, settings and documents.'));
+    } else {
+      if (best?.file || best) {
+        list.append(h('div', { class: 'wsm-h' }, 'Best match'));
+        if (best.file) list.append(h('button', { class: 'w10s-best', onclick: () => { this.closeAll(); env.openPath(best.file); } }, icon(winFileIcon(best.file.split('/').pop(), env.sys.vfs.isDir(best.file)), 32), h('div', null, h('b', null, best.file.split('/').pop()), h('div', { class: 'sub' }, 'File'))));
+        else list.append(h('button', { class: 'w10s-best sel', onclick: () => this.launch(best), oncontextmenu: (e) => this.appMenu(e, best) }, icon(best.icon, 32), h('div', null, h('b', null, best.name), h('div', { class: 'sub' }, best.admin ? 'System' : 'App'))));
+      }
+      if (showApps && apps.length > 1) list.append(h('div', { class: 'wsm-h' }, 'Apps'), apps.slice(1).map((a) => h('button', { class: 'wsm-res', onclick: () => this.launch(a), oncontextmenu: (e) => this.appMenu(e, a) }, icon(a.icon, 20), h('span', null, a.name), h('span', { class: 'w10ss-arr' }, '›'))));
+      if (showDocs && files.length > (best?.file ? 1 : 0)) list.append(h('div', { class: 'wsm-h' }, 'Documents'), files.slice(best?.file ? 1 : 0, 8).map((p) => h('button', { class: 'wsm-res', title: S.toWin(p), onclick: () => { this.closeAll(); env.openPath(p); } }, icon(winFileIcon(p.split('/').pop(), env.sys.vfs.isDir(p)), 20), h('span', null, p.split('/').pop(), h('small', null, ` — ${S.toWin(p.slice(0, p.lastIndexOf('/')))}`)))));
+      if (T === 'Settings') { const st = [['Change User Account Control settings', () => env.openApp('uacsettings')], ['Apps & features', () => env.openApp('settings', { page: 'apps' })], ['Check for updates', () => env.openApp('settings', { page: 'update' })], ['Activation settings', () => env.openApp('settings', { page: 'activation' })], ['Firewall & network protection', () => env.openApp('security', { page: 'firewall' })]].filter(([t]) => lc(t).includes(q) || q.length < 2); list.append(h('div', { class: 'wsm-h' }, 'Settings'), st.map(([t, fn]) => h('button', { class: 'wsm-res', onclick: () => { this.closeAll(); fn(); } }, icon('w-settings', 20), h('span', null, t)))); }
+      if (!list.children.length) list.append(h('div', { class: 'wsm-none' }, `No results for “${this.sq.value}”.`));
+      if (best && !best.file) {
+        const a = best;
+        const act = (t, fn) => h('button', { title: t, onclick: () => { this.closeAll(); fn(); } }, t);
+        detail = h('div', { class: 'w10ss-detail' }, icon(a.icon, 64), h('h3', null, a.name), h('div', { class: 'sub' }, a.admin ? 'System' : 'App'),
+          h('div', { class: 'acts' }, act('↗  Open', () => this.launch(a)), a.elevatable || a.admin ? act('🛡  Run as administrator', () => this.launch(a, { admin: true })) : null, act('🗀  Open file location', () => env.openApp('explorer', { path: a.id === 'terminal' ? '/Windows/System32/WindowsPowerShell/v1.0' : '/ProgramData/Microsoft/Windows/Start Menu/Programs' })), act('📌  Pin to Start', () => {}), act('📌  Pin to taskbar', () => {})));
+      }
+    }
+    m.append(tabs, h('div', { class: 'w10ss-body' }, list, detail));
+    if (q === 'useraccountcontrolsettings' || /^(uac|user account control)/.test(q)) list.prepend(h('div', { class: 'wsm-h' }, 'Best match'), h('button', { class: 'w10s-best', onclick: () => { this.closeAll(); env.openApp('uacsettings'); } }, icon('w-uac', 32), h('div', null, h('b', null, 'Change User Account Control settings'), h('div', { class: 'sub' }, 'Control panel'))));
+  }
+  actionCenter() {
+    if (this.ac) return this.closeAC();
+    const env = this.env;
+    this.closeFlyout(); this.closeStart();
+    const qa = (ic, t, fn, on) => h('button', { class: 'w10ac-qa' + (on ? ' on' : ''), title: t, onclick: () => { this.closeAC(); fn?.(); } }, icon(ic, 18), h('span', null, t));
+    this.ac = h('div', { class: 'w10ac' },
+      h('div', { class: 'w10ac-h' }, h('a', null, 'Manage notifications')), h('div', { class: 'w10ac-none' }, 'No new notifications'),
+      h('div', { class: 'w10ac-foot' }, h('a', { onclick: () => {} }, 'Collapse'),
+        h('div', { class: 'w10ac-g' }, qa('w-update', 'Tablet mode'), qa('w-network', 'Network', () => env.openApp('settings', { page: 'network' }), true), qa('w-settings', 'All settings', () => env.openApp('settings')), qa('w-security', 'Security', () => env.openApp('security')), qa('w-firewall', 'Firewall', () => env.openApp('firewall'), S.firewallAllOn(env.sys)), qa('w-lock', 'Lock', () => env.lock()))));
+    this.screen.append(this.ac);
+  }
+  closeAC() { this.ac?.remove(); this.ac = null; }
+
   // ---------------------------------------------------------------- flyouts
   showFlyout(content, cls = '') {
     this.closeFlyout(); this.closeStart();
@@ -294,7 +414,7 @@ export class WinDesktop {
     this.showFlyout([h('div', { class: 'wsim-h' }, icon('cyberpatriot', 28), h('div', null, h('b', null, 'CyberPatriot Simulator'), h('div', { class: 'sub' }, `${env.scenario.title} · ${eng.score()} / ${eng.maxScore()} points`))),
       row('Scoring updates', sel), row('Report check names', h('select', { class: 'w-in', title: 'Competition reports since 2025 say "Application update check passed" / "Unwanted software check passed" instead of naming the program', onchange: (e) => { env.settings.reportNames = e.target.value; env.saveSettings(); } }, h('option', { value: 'detailed', selected: env.settings.reportNames !== 'generic' }, 'Detailed (training)'), h('option', { value: 'generic', selected: env.settings.reportNames === 'generic' }, 'Generic (competition)'))), row('Sounds', snd),
       row('Hint', btn('Show hint', () => env.hint())),
-      row('Score report', btn('Open', () => env.openApp('chrome', { args: ['file:///C:/CyberPatriot/ScoringReport.html'] }))),
+      row('Score report', btn('Open', () => env.openApp('firefox', { args: ['file:///C:/CyberPatriot/ScoringReport.html'] }))),
       row('Operating system', btn('Switch OS…', () => this.showFlyout(osSwitchContent(env, () => this.closeFlyout()), 'wsim'), 'Switch to the Linux images')),
       row('New round', btn('↻ Reshuffle…', () => env.reshuffle(), 'Deal a new random round of tasks')),
       row('Start over', btn('Reset image…', () => env.reset(), 'Restart this round from a fresh image')),
@@ -320,10 +440,21 @@ export class WinDesktop {
         items.push({ name: label, icon: ic, path: p, title: `${label}\n${isDir ? 'File folder' : S.toWin(p)}`, open: () => env.openPath(p) });
       }
     }
+    if (this.v10) {
+      const ORDER = [/^Recycle Bin$/, /^Firefox/i, /Thunderbird/i, /Set Unique Identifier/i, /CyberPatriot README/i, /Scoring Report/i, /Stop Scoring/i, /^Forensics Question/i];
+      const rank = (it) => { const i = ORDER.findIndex((re) => re.test(it.name)); return i < 0 ? 99 : i; };
+      items.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+      for (const it of items) if (/^Forensics Question/i.test(it.name)) it.icon = 'w-txt';
+    }
     for (const it of items) {
+      if (it.path && /\.(lnk|url)$/i.test(it.path)) { it.lnk = true; try { it.shield = /\[runas\]/.test(env.sys.vfs.readFile(it.path)); } catch { /* ignore */ } }
+    }
+    for (const it of items) {
+      const ico = icon(it.icon, 40);
+      if (it.lnk || it.shield) ico.append(...[it.shield ? h('span', { class: 'ov-shield', html: '<svg viewBox="0 0 48 48" width="16" height="16"><path d="M24 4l17 6v12c0 11-7 19-17 22C14 41 7 33 7 22V10z" fill="#f2b400"/><path d="M24 4v40C14 41 7 33 7 22V10z" fill="#2f7bd6"/></svg>' }) : null, it.lnk ? h('span', { class: 'ov-lnk', html: '<svg viewBox="0 0 16 16" width="14" height="14"><rect x=".5" y=".5" width="15" height="15" fill="#fff" stroke="#999"/><path d="M4 12c0-4 2-6 6-6V3.5L13 7l-3 3.5V8c-3 0-4.500 1-6 4z" fill="#2b6fd6"/></svg>' }) : null].filter(Boolean));
       const el = h('div', { class: 'wdi-i', tabindex: 0, title: it.title, ondblclick: () => it.open(), onkeydown: (e) => { if (e.key === 'Enter') it.open(); },
         onmousedown: () => this.select(el), oncontextmenu: (e) => { e.preventDefault(); e.stopPropagation(); this.select(el); this.iconMenu(e, it); } },
-      icon(it.icon, 40), h('span', null, it.name));
+      ico, h('span', null, it.name));
       this.iconsEl.append(el);
     }
   }
@@ -356,7 +487,7 @@ export function relTime(ms) { const m = Math.round(ms / 60000); if (m < 60) retu
 
 export function lnkIcon(n) {
   const b = n.replace(/\.lnk$/i, '');
-  const known = [[/chrome/i, 'w-chrome'], [/edge/i, 'w-edge'], [/burp/i, 'w-burp'], [/python/i, 'w-python'], [/jellyfin/i, 'w-jellyfin'], [/wireshark/i, 'w-wireshark'], [/notepad\+\+/i, 'w-notepadpp'], [/nmap|zenmap/i, 'w-nmap']].find(([r]) => r.test(b));
+  const known = [[/firefox/i, 'firefox'], [/thunderbird/i, 'w-thunderbird'], [/chrome/i, 'w-chrome'], [/edge/i, 'w-edge'], [/burp/i, 'w-burp'], [/python/i, 'w-python'], [/jellyfin/i, 'w-jellyfin'], [/wireshark/i, 'w-wireshark'], [/notepad\+\+/i, 'w-notepadpp'], [/nmap|zenmap/i, 'w-nmap']].find(([r]) => r.test(b));
   return known ? known[1] : /\.[a-z0-9]{2,5}$/i.test(b) ? winFileIcon(b, false) : 'w-lnk';
 }
 export function winFileIcon(name, isDir) {

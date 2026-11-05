@@ -21,7 +21,7 @@ import { loadApp } from './apps/registry.js';
 import { runExec } from './apps/launch.js';
 import { parseDesktop } from './ui/dom.js';
 import { showLock, showGreeter } from './ui/greeters.js';
-import windowsRound1, { makeWinRound } from './scenarios/win-deck/index.js';
+import windowsRound1, { makeWinRound, windows10Round1 } from './scenarios/win-deck/index.js';
 import { WinDesktop, showWinLock, showWinSignIn } from './ui/win-shell.js';
 import * as WS from './win/state.js';
 
@@ -32,8 +32,8 @@ const store = {
 };
 
 
-const SCENARIOS = { mint: mintScenario, ubuntu: ubuntuScenario, windows: windowsRound1 };
-const dealRound = (os, seed) => (os === 'windows' ? makeWinRound(seed) : makeRound(os, seed));
+const SCENARIOS = { mint: mintScenario, ubuntu: ubuntuScenario, windows10: windows10Round1, windows: windowsRound1 };
+const dealRound = (os, seed) => (os === 'windows10' ? makeWinRound(seed, { ver: 10 }) : os === 'windows' ? makeWinRound(seed) : makeRound(os, seed));
 const OS_KEY = 'cpsim.os';
 
 function chooseOs() {
@@ -49,31 +49,34 @@ function chooseOs() {
       h('div', { style: { display: 'flex', gap: '24px' } },
         card('mint', 'Linux Mint 21', 'Cinnamon desktop · 100-point round', '#8fa876', '🌿'),
         card('ubuntu', 'Ubuntu 22.04', 'GNOME desktop · 100-point round', '#e95420', '🟠'),
-        card('windows', 'Windows 11 Pro', 'PowerShell, MMC consoles · 100-point round', '#3b8ed8', '🔷')),
+        card('windows10', 'Windows 10 Pro', 'Like the competition images · 100-point round', '#0078d7', '🪟'),
+        card('windows', 'Windows 11 Pro', 'Windows 11 shell · 100-point round', '#3b8ed8', '🔷')),
       h('div', { style: { color: '#6c7378', fontSize: '12px' } }, 'You can switch later from the simulator menu. Progress is saved separately for each image.'));
     document.getElementById('screen').append(chooser);
     boot?.classList.add('hide');
   });
 }
-const OS = await chooseOs();
+const OS_ID = await chooseOs(); // mint | ubuntu | windows10 | windows
+const OS = OS_ID === 'windows10' ? 'windows' : OS_ID;
 // Which round is loaded: the fixed Practice Round 1, or a randomly dealt one ("reshuffle", rebuilt from its seed).
-const ROUND_KEY = `cpsim.round.${OS}`;
+const ROUND_KEY = `cpsim.round.${OS_ID}`;
 const round = store.get(ROUND_KEY) || { kind: 'fixed' };
-let scenario = SCENARIOS[OS];
-if (round.kind === 'deck') { try { scenario = dealRound(OS, round.seed); } catch (e) { console.error('could not deal round', e); store.del(ROUND_KEY); } }
+let scenario = SCENARIOS[OS_ID];
+if (round.kind === 'deck') { try { scenario = dealRound(OS_ID, round.seed); } catch (e) { console.error('could not deal round', e); store.del(ROUND_KEY); } }
 // A save only fits the exact set of checks it was made with. Restoring a save into a different (e.g. updated) set of
 // checks is what handed out free points on load, so a mismatch starts a fresh image instead.
 const FINGERPRINT = `${scenario.id}|v${scenario.version || 1}|${scenario.vulns.map((v) => `${v.id}:${v.points}`).join(',')}|${scenario.penalties.map((p) => p.id).join(',')}`;
 document.body.classList.add(`os-${OS}`);
+if (OS_ID === 'windows10') document.body.classList.add('win10');
 setIconTheme(OS === 'ubuntu' ? 'yaru' : 'mint');
 const WIN = OS === 'windows';
 initTooltips();
 document.title = `CyberPatriot Simulator — ${scenario.imageName}`;
 const bootLabel = document.querySelector('#boot > div'); if (bootLabel) bootLabel.textContent = scenario.imageName;
-const SAVE_KEY = `cpsim.save.v2.${OS}`;
-store.del(`cpsim.save.v1.${SCENARIOS[OS].id}`); // saves from before versioning are not trusted
+const SAVE_KEY = `cpsim.save.v2.${OS_ID}`;
+store.del(`cpsim.save.v1.${SCENARIOS[OS_ID].id}`); // saves from before versioning are not trusted
 const SET_KEY = 'cpsim.settings.v1';
-const BROWSER = OS === 'ubuntu' ? 'firefox' : WIN ? 'chrome' : 'chromium';
+const BROWSER = OS === 'ubuntu' || WIN ? 'firefox' : 'chromium';
 const README_URL = WIN ? 'file:///C:/CyberPatriot/README.html' : 'file:///opt/CyberPatriot/README.html';
 
 const bootMsg = (t) => { const el = document.getElementById('boot-msg'); if (el) el.textContent = t; };
@@ -105,7 +108,7 @@ async function main() {
   engine.setMode(settings.mode);
 
   const env = {
-    sys, engine, scenario, wm, ui, settings, user: scenario.user, desktop: null, params, os: OS, browser: BROWSER, readmeUrl: README_URL,
+    sys, engine, scenario, wm, ui, settings, user: scenario.user, desktop: null, params, os: OS, osId: OS_ID, winVer: OS_ID === 'windows10' ? 10 : 11, browser: BROWSER, readmeUrl: README_URL,
     /** Reboot into another image (progress is saved per image). With no argument: show the chooser. */
     switchOs(id) {
       try { env.save?.(); } catch { /* ignore */ }
@@ -141,13 +144,12 @@ async function main() {
         if (!ok) return;
       }
       store.set(ROUND_KEY, { kind: 'deck', seed: newSeed() });
-      store.del(`cpsim.welcomed.${OS}`);
-      store.del(SAVE_KEY); location.href = `${location.pathname}?os=${OS}&fresh=1`;
+      store.del(SAVE_KEY); location.href = `${location.pathname}?os=${OS_ID}&fresh=1`;
     },
     async reset() {
       const ok = await ui.confirm({ title: 'Reset image', heading: 'Start over from a fresh image?', message: 'All of your changes and your score will be erased.', ok: 'Reset', danger: true });
       if (!ok) return;
-      store.del(SAVE_KEY); location.href = `${location.pathname}?os=${OS}&fresh=1`;
+      store.del(SAVE_KEY); location.href = `${location.pathname}?os=${OS_ID}&fresh=1`;
     },
     lock() { if (WIN) return showWinLock(env); showLock(env); },
     logout() { if (WIN) return showWinSignIn(env, { onLogin: (name) => { env.user = name; env.desktop.renderIcons(); } }); showGreeter(env, { onLogin: (name) => { env.user = name; env.desktop.renderIcons(); env.desktop.menuDirty = true; startAutostart(env); } }); },
@@ -162,6 +164,46 @@ async function main() {
       showBoot(env, 'Restarting…', () => { rebootSystem(sys); engine.evaluate(); startAutostart(env); env.wm.wins.slice().forEach((w) => w.close()); env.desktop.renderIcons(); });
     },
   };
+  // ---- CyberPatriot scoring client (Windows): Competitor Agreement, Set Unique Identifier, Stop Scoring
+  if (WIN) {
+    const uidKey = `uid:${scenario.id}`;
+    const stopKey = `stopped:${scenario.id}`;
+    engine.paused = !!settings[stopKey];
+    env.ccs = {
+      uid: () => settings[uidKey] || null,
+      agreement() {
+        return ui.modal((done) => {
+          const cb = h('input', { type: 'checkbox', onchange: () => { go.disabled = !cb.checked; } });
+          const go = h('button', { class: 'w-btn', disabled: true, onclick: () => done(true) }, 'Continue');
+          return h('div', { class: 'ccs-dlg', style: { width: '320px' } }, h('div', { class: 'ccs-t' }, 'CyberPatriot Competitor Agreement'),
+            h('div', { class: 'ccs-b' }, h('p', null, 'While practicing with CyberPatriot images:'), h('p', null, 'I will consider the ethical and legal implications of all of my actions. I will not attack, hack, penetrate or interfere with another team\'s or individual\'s computer system.'), h('p', null, 'I will not keep or share competition images outside their allowed dates of use.'), h('p', null, 'I will follow the rules of my competition.'), h('p', null, 'I will enter my team\'s Unique Identifier immediately.')),
+            h('div', { class: 'ccs-f' }, h('label', null, cb, ' I Agree'), go));
+        });
+      },
+      async setUid() {
+        const ok = await env.elevate({ what: 'CyberPatriot Set Unique Identifier' }); if (!ok) return;
+        const v = await ui.modal((done) => {
+          const inp = h('input', { class: 'ccs-in', maxLength: 14, value: settings[uidKey] || '', placeholder: 'XXXX-XXXX-XXXX', onkeydown: (e) => { if (e.key === 'Enter') sub(); } });
+          const err = h('div', { style: { color: '#c00', minHeight: '16px', fontSize: '12px' } });
+          const sub = () => { const t = inp.value.trim().toUpperCase(); if (t.replace(/-/g, '').length !== 12 || !/^[A-Z0-9-]+$/.test(t)) { err.textContent = 'Your Unique Identifier must be 12 letters or digits.'; return; } done(t.replace(/-/g, '').replace(/(.{4})(.{4})(.{4})/, '$1-$2-$3')); };
+          return h('div', { class: 'ccs-dlg', style: { width: '330px' } }, h('div', { class: 'ccs-t' }, 'Set Unique Identifier'),
+            h('div', { class: 'ccs-b', style: { textAlign: 'center' } }, h('div', { style: { fontWeight: 600, marginBottom: '6px' } }, 'Enter Your 12 Character Unique Identifier*'), inp, err, h('div', { style: { fontSize: '11px', color: '#555' } }, '*Practice image: any 12 letters or digits work.')),
+            h('div', { class: 'ccs-f' }, h('button', { class: 'w-btn', onclick: () => done(null) }, 'Cancel'), h('button', { class: 'w-btn primary', onclick: sub }, 'Apply')));
+        });
+        if (!v) return;
+        settings[uidKey] = v; delete settings[stopKey]; engine.paused = false; env.saveSettings(); engine.evaluate();
+        ui.toast({ title: 'CCS Client', message: `Unique Identifier set to ${v}. Scoring is running.`, kind: 'info' });
+      },
+      async stop() {
+        const ok = await env.elevate({ what: 'CyberPatriot Stop Scoring' }); if (!ok) return;
+        const yes = await ui.confirm({ title: 'CyberPatriot Stop Scoring', heading: 'Are you sure you want to stop scoring?', message: 'On a competition image this ends scoring for the image permanently. In this practice simulator scoring is only paused: set the Unique Identifier again (or use the CyberPatriot icon in the notification area) to resume.', ok: 'Yes', cancel: 'No', icon: 'w-warn' });
+        if (!yes) return;
+        settings[stopKey] = true; engine.paused = true; env.saveSettings();
+        ui.toast({ title: 'CCS Client', message: 'Scoring has been stopped.', kind: 'info' });
+      },
+      resume() { delete settings[stopKey]; engine.paused = false; env.saveSettings(); engine.evaluate(); },
+    };
+  }
   window.cpsim = env;
   env.desktop = WIN ? new WinDesktop(env) : OS === 'ubuntu' ? new UbuntuDesktop(env) : new Desktop(env);
 
@@ -194,6 +236,7 @@ async function main() {
   document.getElementById('boot').classList.add('hide');
   setTimeout(() => document.getElementById('boot')?.remove(), 700);
   if (staleSave) ui.toast({ title: 'Fresh image started', message: 'The simulator was updated since your last visit, so your old save no longer matched the scoring. A fresh copy of the image was started.', kind: 'info', ms: 10000 });
+  if (WIN && !restored && !settings[`uid:${scenario.id}`]) { env.ccs.agreement().then(() => env.ccs.setUid()); }
   if (!settings.welcomed && !restored) {
     settings.welcomed = true; env.saveSettings();
     showWelcome(env);
@@ -254,11 +297,13 @@ function winOpenPath(env, path, opts = {}) {
   try {
     if (sys.vfs.isDir(real)) return env.openApp('explorer', { path: real });
     if (!sys.vfs.exists(real)) { ui.alert({ title: 'Location is not available', heading: `${WS.toWin(real)} is not accessible.`, message: 'The system cannot find the file specified.', icon: 'w-warn' }); return null; }
-    if (/\.url$/i.test(name)) { const u = /^URL=(.*)$/m.exec(sys.vfs.readFile(real))?.[1]; return env.openApp('chrome', { args: [u || 'about:blank'] }); }
+    if (/\.url$/i.test(name)) { const u = /^URL=(.*)$/m.exec(sys.vfs.readFile(real))?.[1]; return env.openApp('firefox', { args: [u || 'about:blank'] }); }
     if (/\.lnk$/i.test(name)) {
       const t = sys.vfs.readFile(real);
       const target = t.replace(/^\[shortcut\]\s*/, '').trim();
-      const app = /chrome\.exe/i.test(t) ? 'chrome' : /msedge/i.test(t) ? 'chrome' : /notepad\+\+\.exe/i.test(t) ? 'notepadpp' : /wireshark\.exe/i.test(t) ? 'wireshark' : null;
+      if (/CCSClientUID\.exe/i.test(t)) return env.ccs?.setUid();
+      if (/CCSStopScoring\.exe/i.test(t)) return env.ccs?.stop();
+      const app = /firefox\.exe|chrome\.exe|msedge/i.test(t) ? 'firefox' : /thunderbird\.exe/i.test(t) ? 'thunderbird' : /notepad\+\+\.exe/i.test(t) ? 'notepadpp' : /wireshark\.exe/i.test(t) ? 'wireshark' : null;
       if (app) return env.openApp(app, {});
       const tp = WS.resolve(sys, WS.fromWin(target));
       if (/^[a-z]:\\/i.test(target) && sys.vfs.exists(tp) && !/\.(exe|bat|cmd|msi)$/i.test(tp)) return winOpenPath(env, tp, opts);
@@ -266,7 +311,7 @@ function winOpenPath(env, path, opts = {}) {
       ui.alert({ title: name.replace(/\.lnk$/i, ''), heading: 'This program is not part of the simulation', message: `The shortcut points to ${t.replace(/^\[shortcut\]\s*/, '')}. Uninstall unwanted programs from Settings > Apps or with winget.`, icon: 'w-info' }); return null;
     }
     if (/\.(pcap|pcapng|cap)$/i.test(name)) { if (WS.listPrograms(sys).some((p) => p.id === 'WiresharkFoundation.Wireshark')) return env.openApp('wireshark', { path: real }); ui.alert({ title: name, heading: 'How do you want to open this file?', message: 'No app is installed that opens .pcap files. Wireshark opens packet captures.', icon: 'w-info' }); return null; }
-    if (/\.html?$/i.test(name)) return env.openApp('chrome', { args: ['file:///' + WS.toWin(real).replace(/\\/g, '/')] });
+    if (/\.html?$/i.test(name)) return env.openApp('firefox', { args: ['file:///' + WS.toWin(real).replace(/\\/g, '/')] });
     if (/\.(exe|msi|bat|cmd|ps1|sys|dll)$/i.test(name)) { ui.alert({ title: name, heading: 'Windows protected your PC', message: 'Running programs from files is not part of the simulation. Remove unwanted programs and files instead.', icon: 'w-security' }); return null; }
     if (/\.(mp3|ogg|wav|flac|mp4|mkv|avi|png|jpe?g|gif)$/i.test(name)) { ui.alert({ title: name, heading: 'Media Player', message: `${name} would play here. Personal media files are usually prohibited on CyberPatriot images.`, icon: 'w-media' }); return null; }
     return env.openApp(/\.(conf|cfg|xml|json|py|c|ps1|bat|cmd|js|php|ini)$/i.test(name) && WS.listPrograms(sys).some((p) => p.id === 'Notepad++.Notepad++') ? 'notepadpp' : 'notepad', { path: real, ...opts });

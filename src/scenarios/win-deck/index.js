@@ -21,7 +21,7 @@ const DEAL = {
 };
 const CAT_ORDER = ['Forensics', ...Object.keys(DEAL)];
 // "Windows Practice Round 1" follows the structure of the CyberPatriot Windows 11 Training 2 image (25 scored checks)
-const FIXED = { cards: ['unauth', 'newhire', 'guest', 'notadmin', 'pwexpire', 'minlen', 'reversible', 'complexity', 'so-smbclient', 'so-cad', 'gpo-winrm', 'firewall', 'rdpoff', 'nppupd', 'chromeupd', 'exploit', 'software', 'apache-sig'], forensics: ['fq-pcap', 'fq-otp'],
+const FIXED = { cards: ['unauth', 'newhire', 'guest', 'notadmin', 'pwexpire', 'minlen', 'reversible', 'complexity', 'so-smbclient', 'so-cad', 'gpo-winrm', 'firewall', 'rdpoff', 'nppupd', 'ffupd', 'exploit', 'software', 'apache-sig'], forensics: ['fq-pcap', 'fq-otp'],
   want: { unauth: 2, notadmin: 2, rdpGpo: true, exploit: 0, software: ['Jellyfin Media Player', 'Burp Suite Community Edition', 'Python3', 'Nmap'] } };
 
 function planRound(seed, fixed = false) {
@@ -63,7 +63,9 @@ function planRound(seed, fixed = false) {
   else for (const [cat, [lo, hi]] of Object.entries(DEAL)) {
     const pool = byCat[cat] || [];
     const n = Math.min(pool.length, ctx.int(lo, hi));
-    dealt.push(...ctx.shuffle(pool).slice(0, n));
+    const groups = new Set(dealt.map((c) => c.group).filter(Boolean));
+    let k = 0;
+    for (const c of ctx.shuffle(pool)) { if (k >= n) break; if (c.group && groups.has(c.group)) continue; if (c.group) groups.add(c.group); dealt.push(c); k++; }
   }
   const first = ['unauth', 'newhire'];
   dealt.sort((a, b) => (first.includes(b.id) - first.includes(a.id)) || 0);
@@ -79,7 +81,7 @@ function planRound(seed, fixed = false) {
     const path = `/Users/student/Desktop/Forensics Question ${fq.n}.txt`;
     ctx.vulns.unshift({ id: `fq${fq.n}`, category: 'Forensics', base: 0, fq: true, title: `Forensics Question ${fq.n} correct`, check: (s) => lc(answerOf(s, path)) === lc(fq.answer) });
     const win = S.toWin(path);
-    ctx.solves.push({ phase: 0, order: i, cmd: `(Get-Content '${win}') -replace '^ANSWER:.*', 'ANSWER: ${fq.answer.replace(/'/g, "''")}' | Set-Content '${win}'`, input: [] });
+    ctx.solves.push({ phase: 0, order: i, cmd: `(Get-Content '${win}') -replace '^ANSWER: <Type Answer Here>', 'ANSWER: ${fq.answer.replace(/'/g, "''")}' | Set-Content '${win}'`, input: [] });
   });
   // report order: Forensics first, then the CyberPatriot category order
   ctx.vulns.sort((a, b) => CAT_ORDER.indexOf(a.category) - CAT_ORDER.indexOf(b.category) || (a.fq && b.fq ? a.id.localeCompare(b.id) : 0));
@@ -99,10 +101,50 @@ function planRound(seed, fixed = false) {
   return ctx;
 }
 
-function answerOf(sys, path) { const t = sys.vfs.isFile(path) ? sys.vfs.readFile(path) : ''; const m = /^ANSWER:[ \t]*(.*)$/m.exec(t); return m ? m[1].trim() : ''; }
+/** The scored answer is the first ANSWER: line after the ===== separator (the lines above it are the worked examples). */
+function answerOf(sys, path) {
+  const t = sys.vfs.isFile(path) ? sys.vfs.readFile(path).replace(/\r/g, '') : '';
+  const parts = t.split(/^={10,}\s*$/m);
+  const body = parts.length > 1 ? parts[parts.length - 1] : t;
+  for (const m of body.matchAll(/^ANSWER:[ \t]*(.*)$/gm)) { const v = m[1].trim(); if (v && !/^<type answer here>$/i.test(v)) return v; }
+  return '';
+}
+export function forensicsFile(q) {
+  return `This is a forensics question. Answer it below.
+
+Here is an example question:
+
+What color is a clear daytime sky?
+
+ANSWER: <Type Answer Here>
+
+After correctly answering the question, the example question would look like this:
+
+What color is a clear daytime sky?
+
+ANSWER: Blue
+
+If the question has more than one answer, place each answer on a separate line, for example:
+
+Name two primary colors.
+
+ANSWER: Red
+ANSWER: Blue
+
+Remember to save the file after typing the answer.
+The scored question appears below.
+
+${'='.repeat(58)}
+
+${q.text}
+
+ANSWER: <Type Answer Here>
+`.replace(/\n/g, '\r\n');
+}
 const teamId = (rng) => Array.from({ length: 3 }, () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(rng() * 32)]).join('')).join('-');
 
-export function makeWinRound(seed, { fixed = false } = {}) {
+export function makeWinRound(seed, { fixed = false, ver = 11 } = {}) {
+  const V = ver === 10 ? 10 : 11;
   const ctx = planRound(seed >>> 0, fixed);
   const authorized = [...ctx.admins.map((a) => a.name), ...ctx.users.map((u) => u.name)];
   const penalties = [
@@ -112,34 +154,35 @@ export function makeWinRound(seed, { fixed = false } = {}) {
     ...(ctx.apache ? [{ id: 'apache-crit', points: 5, title: 'Critical service Apache2.4 is stopped or removed', check: (s) => !S.serviceOn(s, 'Apache2.4') || !s.vfs.exists('/Apache24/bin/httpd.exe') }] : []),
     { id: 'lockout-low', points: 5, title: 'Account lockout threshold less than 5 is deprecated', check: (s) => s.win.policy.lockoutThreshold > 0 && s.win.policy.lockoutThreshold < 5 },
     // the answer key's "not installed at the default location" penalties: removing or moving a required program
-    ...[['Google.Chrome', 'Google Chrome', '/Program Files/Google/Chrome/Application/chrome.exe'], ['Notepad++.Notepad++', 'Notepad++', '/Program Files/Notepad++/notepad++.exe'], ['7zip.7zip', '7-Zip', '/Program Files/7-Zip/7z.exe'], ...(ctx.wireshark ? [['WiresharkFoundation.Wireshark', 'Wireshark', '/Program Files/Wireshark/Wireshark.exe']] : [])]
+    ...[['Mozilla.Firefox', 'Firefox', '/Program Files/Mozilla Firefox/firefox.exe'], ['Mozilla.Thunderbird', 'Thunderbird', '/Program Files/Mozilla Thunderbird/thunderbird.exe'], ['Notepad++.Notepad++', 'Notepad++', '/Program Files/Notepad++/notepad++.exe'], ['7zip.7zip', '7-Zip', '/Program Files/7-Zip/7z.exe'], ...(ctx.wireshark ? [['WiresharkFoundation.Wireshark', 'Wireshark', '/Program Files/Wireshark/Wireshark.exe']] : [])]
       .map(([id, name, exe]) => ({ id: `default-${id}`, points: 5, title: `${name} is not installed at the default location`, check: (s) => !S.listPrograms(s).some((p) => p.id === id) || !s.vfs.exists(exe) })),
   ];
   const short = (seed >>> 0).toString(36).toUpperCase().padStart(6, '0').slice(-6);
   const scenario = {
-    id: fixed ? 'windows-round1' : `windows-deck-${seed >>> 0}`,
+    id: `${V === 10 ? 'windows10' : 'windows'}-${fixed ? 'round1' : `deck-${seed >>> 0}`}`,
+    winVer: V,
     version: WIN_DECK_VERSION,
     random: !fixed,
     seed: seed >>> 0,
     os: 'windows',
     title: fixed ? 'Windows Practice Round 1' : `Practice Round ${short}`,
     image: 'win11',
-    imageName: 'Windows 11 Pro',
+    imageName: V === 10 ? 'Windows 10 Pro' : 'Windows 11 Pro',
     teamId: teamId(mulberry32(seed ^ 0x5eed)),
     user: 'student',
     password: STUDENT_PW,
     rdpRequired: ctx.rdpRequired,
-    readmeHtml: () => readmeHtml(ctx, fixed),
+    readmeHtml: () => readmeHtml(ctx, fixed, V),
     vulns: ctx.vulns.map(({ id, category, points, title, check }) => ({ id, category, points, title, check })),
     penalties,
     forensics: ctx.forensics.map(({ n, text, answer }) => ({ n, text, answer })),
     /** Elevated PowerShell fixes for every task, in a safe order. Used by tests/windows.test.mjs. */
     solution: ctx.solves.slice().sort((a, b) => a.phase - b.phase || a.order - b.order).map(({ cmd, input }) => [cmd, ...input]),
     createMachine(opts = {}) {
-      const sys = buildWindows11(opts);
+      const sys = buildWindows11({ ...opts, ver: V });
       applyBase(sys, ctx);
       for (const fn of ctx.ops) fn(sys);
-      writeDesktop(sys, ctx, fixed);
+      writeDesktop(sys, ctx, fixed, V);
       sys.dirty = false;
       return sys;
     },
@@ -166,67 +209,86 @@ function applyBase(sys, ctx) {
     putFile(sys, '/Program Files/Wireshark/tshark.exe', 'MZ\u0090\u0000(simulated tshark.exe)', { size: 700000, days: 45 });
     S.regSet(sys, 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Wireshark', 'DisplayName', 'Wireshark 4.4.5 x64', 'REG_SZ', { noTouch: true });
   }
-  // Chrome profile (secure defaults; Application Security cards make it insecure)
-  BP.setChromium(sys, 'student', { browser: { has_seen_welcome_page: true, show_home_button: true }, homepage: 'https://www.google.com/', homepage_is_newtabpage: true, 'profile.name': 'Person 1', 'safebrowsing.enabled': true, 'session.restore_on_startup': 5 });
+  // Firefox profile in %APPDATA% (secure defaults; Application Security cards make it insecure)
+  BP.seedWindowsFirefox(sys, 'student');
   // hidden files the way Explorer sees them
   sys.win.hidden = ['/programdata', ...[...ctx.admins, ...ctx.users].map((u) => `/users/${lc(u.name)}/appdata`)];
 }
 
-function writeDesktop(sys, ctx, fixed) {
-  putFile(sys, '/CyberPatriot/README.html', readmeHtml(ctx, fixed), { days: 1 });
+function writeDesktop(sys, ctx, fixed, V) {
+  putFile(sys, '/CyberPatriot/README.html', readmeHtml(ctx, fixed, V), { days: 1 });
   putFile(sys, '/CyberPatriot/ScoringReport.html', '<html><body>Scoring report (live; open it from the desktop shortcut)</body></html>', { days: 1 });
-  putFile(sys, '/CyberPatriot/CCSClient.exe', 'MZ\u0090\u0000(simulated CyberPatriot scoring client)', { size: 1843200, days: 1 });
+  for (const [f, n] of [['CCSClient.exe', 1843200], ['CCSClientUID.exe', 412160], ['CCSStopScoring.exe', 198144]]) putFile(sys, `/CyberPatriot/${f}`, 'MZ\u0090\u0000(simulated CyberPatriot scoring client)', { size: n, days: 1 });
   const desk = '/Users/student/Desktop';
-  putFile(sys, `${desk}/CyberPatriot README.url`, '[InternetShortcut]\nURL=file:///C:/CyberPatriot/README.html\nIconFile=C:\\CyberPatriot\\CCSClient.exe\n', { days: 1 });
-  putFile(sys, `${desk}/CyberPatriot Scoring Report.url`, '[InternetShortcut]\nURL=file:///C:/CyberPatriot/ScoringReport.html\nIconFile=C:\\CyberPatriot\\CCSClient.exe\n', { days: 1 });
-  for (const q of ctx.forensics) putFile(sys, `${desk}/Forensics Question ${q.n}.txt`, `FORENSICS QUESTION ${q.n}\n\n${q.text}\n\nType your answer after "ANSWER:" below and save this file.\n\nANSWER: \n`, { days: 1 });
-  putFile(sys, '/Users/Public/Desktop/Google Chrome.lnk', '[shortcut] C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', { days: 30 });
-  putFile(sys, '/Users/Public/Desktop/Microsoft Edge.lnk', '[shortcut] C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', { days: 30 });
+  // the CyberPatriot shortcuts, named as on competition images
+  putFile(sys, `${desk}/CyberPatriot Set Unique Identifier.lnk`, '[shortcut] C:\\CyberPatriot\\CCSClientUID.exe\n[runas]', { days: 1 });
+  putFile(sys, `${desk}/CyberPatriot README.lnk`, '[shortcut] C:\\CyberPatriot\\README.html', { days: 1 });
+  putFile(sys, `${desk}/CyberPatriot Scoring Report.lnk`, '[shortcut] C:\\CyberPatriot\\ScoringReport.html', { days: 1 });
+  putFile(sys, `${desk}/CyberPatriot Stop Scoring.lnk`, '[shortcut] C:\\CyberPatriot\\CCSStopScoring.exe\n[runas]', { days: 1 });
+  for (const q of ctx.forensics) putFile(sys, `${desk}/Forensics Question ${q.n}.txt`, forensicsFile(q), { days: 1 });
+  putFile(sys, '/Users/Public/Desktop/Firefox.lnk', '[shortcut] C:\\Program Files\\Mozilla Firefox\\firefox.exe', { days: 30 });
+  putFile(sys, '/Users/Public/Desktop/Mozilla Thunderbird.lnk', '[shortcut] C:\\Program Files\\Mozilla Thunderbird\\thunderbird.exe', { days: 30 });
+  void V;
 }
 
-function readmeHtml(ctx, fixed) {
+function readmeHtml(ctx, fixed, V = 11) {
   const [org, what, staff] = ctx.org;
-  const admins = ctx.admins.map((a) => `<li><code>${a.name}</code>${a.note === 'you' ? ' (you)' : ''}<br>password: <code>${a.pw}</code></li>`).join('');
-  const usersL = ctx.users.map((u) => `<li><code>${u.name}</code></li>`).join('');
-  const notServices = ctx.readme.notServices.length ? `<li>This computer is not a server for ${ctx.readme.notServices.join(', ')}. Those services should not run here.</li>` : '';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Windows 11 Practice Image README</title>
+  const W = V === 10 ? 'Windows 10' : 'Windows 11';
+  const admins = ctx.admins.map((a) => `${a.name}${a.note === 'you' ? ' (you)' : ''}<div class="pw">password: ${a.pw}</div>`).join('');
+  const usersL = ctx.users.map((u) => `<div>${u.name}</div>`).join('');
+  const notServices = ctx.readme.notServices.length ? `<p>This computer is not used as a server for ${ctx.readme.notServices.join(', ')}. Those services should not be running.</p>` : '';
+  const title = fixed ? `${W} Practice Round 1` : `${W} Practice Round ${(ctx.seed >>> 0).toString(36).toUpperCase()}`;
+  const nav = ['Home', 'About the Simulator', 'Practice Rounds', 'Scoring Report Help', 'Windows Checklist', 'Forensics Tips', 'Linux Checklist', 'Glossary'].map((n) => `<a href="#top">${n}</a>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${title} README</title>
 <style>
-body{font:15px/1.5 "Segoe UI",system-ui,Arial,sans-serif;color:#1b1b1b;max-width:840px;margin:0 auto;padding:22px 30px 60px;background:#fff}
-h1{font-size:26px;font-weight:600;margin:.2em 0 .1em}h2{font-size:18px;font-weight:600;margin:1.6em 0 .3em;border-bottom:2px solid #0067c0;padding-bottom:3px}
-.sub{color:#666;margin:0 0 1em}code{background:#f0f3f8;padding:1px 5px;border-radius:3px;font-family:Consolas,"Cascadia Mono",monospace;font-size:13px}
-.box{background:#f3f7fc;border-left:4px solid #0067c0;padding:8px 14px;margin:12px 0}li{margin:3px 0}
-</style></head><body>
-<h1>Windows 11 Practice Image</h1>
-<p class="sub">${fixed ? 'Windows Practice Round 1' : `Round ${(ctx.seed >>> 0).toString(36).toUpperCase()} &middot; randomly generated practice round`} &middot; Unofficial simulator</p>
+html,body{margin:0}body{font:15px/1.55 "Segoe UI",Arial,sans-serif;color:#222;background:#041627 repeating-linear-gradient(115deg,rgba(0,190,220,.06) 0 2px,transparent 2px 46px),radial-gradient(1200px 700px at 70% 20%,#0d4a6b,#041627);min-height:100vh}
+.page{display:flex;gap:22px;max-width:1080px;margin:0 auto;padding:22px}
+.side{width:210px;flex:none;background:#fff;align-self:flex-start;padding:10px 0;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+.side a{display:block;padding:5px 16px;color:#0a7fa5;font-size:12px;font-weight:700;text-transform:uppercase;text-decoration:none}.side a:hover{background:#eaf6fa}
+.main{flex:1;background:#fff;padding:22px 34px 40px;box-shadow:0 2px 14px rgba(0,0,0,.35)}
+h1{font-size:24px;margin:0 0 4px;color:#0b2f4a}.sub{color:#777;font-size:13px;margin-bottom:16px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.3px;margin:24px 0 8px;color:#111}
+.box{background:#f5f5f5;border:1px solid #e3e3e3;padding:10px 12px;font-size:14px}.box .pw{padding-left:20px}.box b{display:block;margin:6px 0 2px}
+ul{padding-left:22px}li{margin:4px 0}code{background:#eef3f6;padding:1px 5px;border-radius:3px;font-family:Consolas,monospace;font-size:13px}
+.foot{margin-top:30px;text-align:center;color:#666;font-size:13px}
+</style></head><body><div class="page" id="top"><nav class="side">${nav}</nav><div class="main">
+<h1>${title}</h1><div class="sub">Unofficial CyberPatriot-style practice image &middot; ${org}</div>
+<h2>Unique Identifier</h2>
+<p>When the image starts you are asked to accept the competitor agreement and to enter your team's 12-character Unique Identifier. If you skipped it, double-click <b>CyberPatriot Set Unique Identifier</b> on the desktop. In this simulator any 12 letters and digits work (for example <code>ABCD-1234-EFGH</code>).</p>
+<h2>Forensics Questions</h2>
+<p>If there are "Forensics Questions" on your desktop, you will receive points for answering them correctly. Valid (scored) questions are worth points only if you get the answer exactly right. Answer them before changing the computer, because fixing problems may remove the evidence you need.</p>
 <h2>Competition Scenario</h2>
-<p>${org} is ${what}. This Windows 11 Pro workstation is shared by ${staff}. Management suspects that the computer has been tampered with and has hired you as the system administrator. Find and fix security problems while keeping the computer working for its authorized users.</p>
-<p>Not every program or service is a problem: read this README before you remove something.</p>
-<div class="box"><b>Forensics questions</b> are on the desktop. Answer them <i>before</i> you change accounts or files, because the evidence might be removed. Type your answer after <code>ANSWER:</code> and save the file.</div>
-<div class="box">Most fixes need administrator rights. Right-click <b>Terminal</b> and choose <b>Run as administrator</b>, or open the management consoles (Computer Management, Local Security Policy, Services) from Start.</div>
-<h2>Authorized Administrators and Users</h2>
-<p><b>Authorized Administrators:</b></p><ul>${admins}</ul>
-<p><b>Authorized Users:</b></p><ul>${usersL}</ul>
-<p>All other accounts are <b>not</b> authorized. Authorized users must keep their accounts. All users must have secure passwords. The built-in Guest and Administrator accounts must stay disabled.</p>
-${ctx.readme.notes.map((n) => `<p>${n}</p>`).join('\n')}
-<h2>Critical Services</h2>
-<ul>${ctx.rdpRequired ? '<li><b>Remote Desktop</b> must stay enabled so the office manager can connect remotely. Only administrators may connect, and connections must use Network Level Authentication.</li>' : '<li>None. Remote Desktop is <b>not</b> used on this computer.</li>'}</ul>
-<h2>Critical Programs</h2>
-<ul><li><b>Google Chrome</b> is the required web browser and must stay installed and up to date.</li><li><b>Notepad++</b> and <b>7-Zip</b> are used by staff and must stay installed in their default locations.</li>${ctx.wireshark ? '<li><b>Wireshark</b> is used by the IT team for network troubleshooting and must stay installed.</li>' : ''}${ctx.readme.programs.map((p) => `<li>${p}.</li>`).join('')}</ul>
-<h2>Company Policy</h2>
-<ul>
-<li>Hacking tools, password crackers, network sniffers, peer-to-peer software, AI code editors and games are prohibited.</li>
-<li>Personal media files and plaintext files containing passwords are not allowed.</li>
+<p>${org} is ${what}. This ${W} workstation is shared by ${staff}. Employees should use secure passwords, and the use of hacking tools, games and personal media is strictly prohibited. Management suspects the computer has been tampered with and has asked you, the system administrator, to secure it while keeping the authorized business software working.</p>
+<p>Company policy says that Windows Security (the Security Center) must stay enabled and keep monitoring the security status of this computer at all times.</p>
+<p>This is a critical computer in a production environment. Do <b>NOT</b> install Windows "Feature Updates" or "Insider Preview" builds, and do <b>NOT</b> use the recovery options "Reset this PC" or "Go back to an earlier build".</p>
+<h2>${W}</h2>
+<p>It is company policy to use only ${W} on this computer. Management has decided that the default web browser for all users is the latest stable version of <b>Firefox</b>. <b>Thunderbird</b> is also required and should be updated to the latest stable version.</p>
+<p>${ctx.rdpRequired ? 'The office manager connects to this computer with <b>Remote Desktop</b>, which must stay enabled; only administrators may connect, and connections must use Network Level Authentication.' : 'This is a standalone workstation and does not have any business critical services. Remote Desktop is not used.'}</p>
 ${notServices}
+${ctx.readme.notes.map((n) => `<p>${n}</p>`).join('\n')}
+<h2>Authorized Administrators and Users</h2>
+<div class="box"><b>Authorized Administrators:</b>${admins}<b style="margin-top:12px">Authorized Users:</b>${usersL}</div>
+<h2>Critical Programs</h2>
+<ul><li><b>Firefox</b> and <b>Thunderbird</b> must stay installed in their default locations and be kept up to date.</li><li><b>Notepad++</b> and <b>7-Zip</b> are used by staff and must stay installed in their default locations.</li>${ctx.wireshark ? '<li><b>Wireshark</b> is used by the IT team for network troubleshooting and must stay installed.</li>' : ''}</ul>
+<h2>Company Policy</h2>
+<ul><li>Hacking tools, password crackers, network scanners and sniffers, peer-to-peer software, AI code editors and games are prohibited.</li>
+<li>Personal media files and plaintext files containing passwords are not allowed.</li>
 <li>Windows Defender Firewall and Microsoft Defender Antivirus must be on, and Windows must be kept up to date.</li>
-<li>Use a sensible password and lockout policy (at least 10 characters, a password history, limited password age, lockout after 5 to 10 failed logins for at least 30 minutes). A lockout threshold below 5 is deprecated.</li>
+<li>Use a sensible password and lockout policy: at least 10 characters, a password history, limited password age, and lockout after 5 to 10 failed logins for at least 30 minutes. A lockout threshold below 5 is deprecated.</li>
 <li>File and printer sharing is not used; SMB version 1 must not be available.</li>
-${ctx.readme.policy.map((p) => `<li>${p}</li>`).join('\n')}
-</ul>
-<h2>Tips</h2>
-<ul><li>The <b>Scoring Report</b> on the desktop shows how many problems you have fixed, but not what is left.</li>
-<li>When you are done, use the <b>↻ reshuffle</b> button in the taskbar's notification area to deal a new random round.</li></ul>
-</body></html>`;
+${ctx.readme.policy.map((p) => `<li>${p}</li>`).join('\n')}</ul>
+<h2>Competition Guidelines</h2>
+<ul><li>You do <b>not</b> need to change the password of the main account that signs in automatically; doing so may lock you out.</li>
+<li>Do not stop or disable the CyberPatriot scoring client service or its process.</li>
+<li>Do not remove any authorized users or their home folders.</li>
+<li>The time zone of this image is UTC. Do not change the time zone, date or time.</li>
+<li>You can see your current score by double-clicking <b>CyberPatriot Scoring Report</b> on the desktop.</li>
+<li>Some security settings may stop the Stop Scoring program from running; in a real round the safe way out is to suspend the virtual machine.</li>
+<li>Finished? Use the <b>↻ reshuffle</b> icon in the notification area to deal a new random practice round.</li></ul>
+<div class="foot">Unofficial practice simulator. Not affiliated with the CyberPatriot program.</div>
+</div></div></body></html>`;
 }
 
 const windowsRound1 = makeWinRound(FIXED_SEED, { fixed: true });
+export const windows10Round1 = makeWinRound(FIXED_SEED, { fixed: true, ver: 10 });
 export default windowsRound1;

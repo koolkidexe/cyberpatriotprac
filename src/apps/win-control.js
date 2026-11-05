@@ -13,6 +13,7 @@ export function open(env, opts = {}) {
   const a = opts.app;
   if (a === 'sysdm') return sysdm(env, opts);
   if (a === 'features') return features(env, opts);
+  if (a === 'uacsettings') return uacSettings(env, opts);
   return controlPanel(env, opts, a === 'firewall' ? 'firewall' : a === 'programs' ? 'programs' : 'home');
 }
 
@@ -155,4 +156,42 @@ function features(env, opts) {
       done(true);
       if (changed) env.ui.alert({ title: 'Windows Features', heading: 'Windows completed the requested changes.', message: 'Windows needs to reboot your PC to finish installing the requested changes.', icon: 'w-ok' });
     } }, 'OK'), h('button', { onclick: () => done(false) }, 'Cancel'))));
+}
+
+// User Account Control Settings (UserAccountControlSettings.exe): the four-notch slider.
+const UAC_LEVELS = [
+  { t: 'Never notify me when:', d: ['Apps try to install software or make changes to my computer', 'I make changes to Windows settings'], rec: 'Not recommended.', v: { p: 0, s: 0 } },
+  { t: 'Notify me only when apps try to make changes to my computer (do not dim my desktop)', d: ['Don\'t notify me when I make changes to Windows settings'], rec: 'Not recommended. Choose this only if it takes a long time to dim the desktop on your computer.', v: { p: 5, s: 0 } },
+  { t: 'Notify me only when apps try to make changes to my computer (default)', d: ['Don\'t notify me when I make changes to Windows settings'], rec: 'Recommended if you use familiar apps and visit familiar websites.', v: { p: 5, s: 1 } },
+  { t: 'Always notify me when:', d: ['Apps try to install software or make changes to my computer', 'I make changes to Windows settings'], rec: 'Recommended if you routinely install new software and visit unfamiliar websites.', v: { p: 2, s: 1 } },
+];
+function uacLevel(sys) {
+  const p = Number(S.secopt(sys, 'uacPrompt')); const sd = Number(S.secopt(sys, 'uacSecureDesktop'));
+  if (Number(S.secopt(sys, 'uacLua')) === 0 || p === 0) return 0;
+  if (p === 2 || p === 1) return 3;
+  return sd ? 2 : 1;
+}
+function uacSettings(env, opts) {
+  const sys = env.sys;
+  let lvl = uacLevel(sys);
+  const range = h('input', { type: 'range', min: 0, max: 3, step: 1, value: lvl, orient: 'vertical', class: 'uac-range', title: 'Notification level', oninput: () => { lvl = Number(range.value); desc(); } });
+  const box = h('div', { class: 'uac-desc' });
+  const desc = () => { clear(box); const L = UAC_LEVELS[lvl]; box.append(h('b', null, L.t), h('ul', null, L.d.map((x) => h('li', null, x))), h('div', { class: 'uac-rec' }, L.rec)); };
+  const ok = h('button', { class: 'w-btn primary', onclick: async () => {
+    if (lvl !== uacLevel(sys)) {
+      if (!(await admin(env, opts, 'User Account Control Settings'))) return;
+      const v = UAC_LEVELS[lvl].v; const set = (id, val) => S.setSecopt(sys, S.SECOPTS.find((o) => o.id === id), val);
+      set('uacPrompt', v.p); set('uacSecureDesktop', v.s); if (lvl > 0) set('uacLua', 1);
+    }
+    win.close();
+  } }, '🛡 OK');
+  const root = h('div', { class: 'wapp', style: { background: '#fff', padding: '18px 26px', display: 'flex', flexDirection: 'column', gap: '12px' } },
+    h('div', { style: { fontSize: '17px', color: '#1e3287' } }, 'Choose when to be notified about changes to your computer'),
+    h('div', { style: { fontSize: '12.5px' } }, 'User Account Control helps prevent potentially harmful programs from making changes to your computer. ', h('a', { style: { color: '#0066cc' } }, 'Tell me more about User Account Control settings')),
+    h('div', { style: { display: 'flex', gap: '24px', alignItems: 'stretch', flex: 1 } },
+      h('div', { class: 'uac-scale' }, h('div', null, 'Always notify'), range, h('div', null, 'Never notify')), box),
+    h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #ddd', paddingTop: '10px' } }, ok, h('button', { class: 'w-btn', onclick: () => win.close() }, 'Cancel')));
+  const win = env.wm.open({ title: 'User Account Control Settings', icon: 'w-uac', width: 720, height: 530, appId: 'uacsettings', content: root });
+  desc();
+  return win;
 }

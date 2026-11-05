@@ -4,7 +4,7 @@ import { AnsiView } from '../ui/ansi.js';
 import { openNano, openVi } from '../ui/editors.js';
 import { createShell } from '../shell/index.js';
 import { createWinShell } from '../win/shell.js';
-import { WIN_VERSION } from '../win/image.js';
+import { winVer } from '../win/image.js';
 import { icon } from '../ui/icons.js';
 
 let ttyCounter = 0;
@@ -18,6 +18,7 @@ export function openTerminal(env, opts = {}) {
   // GNOME Terminal 3.44 as shipped on Mint 21 / Ubuntu 22.04: menu bar (Mint) and the dark theme variant
   const menuItem = (n, items) => h('div', { class: 'mi', title: `${n} menu`, onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom, items()); } }, n);
   const isWin = env.os === 'windows';
+  const con10 = isWin && env.winVer === 10; // Windows 10: classic console host window instead of Windows Terminal
   const termMenu = env.os === 'ubuntu' || isWin ? null : h('div', { class: 'menubar term-menu' },
     menuItem('File', () => [{ label: 'New Window', action: () => env.openApp('terminal', { user }) }, 'sep', { label: 'Close Window', action: () => win.close() }]),
     menuItem('Edit', () => [{ label: 'Copy', action: () => document.execCommand('copy') }, { label: 'Select All', action: () => { const r = document.createRange(); r.selectNodeContents(out); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r); } }]),
@@ -31,15 +32,15 @@ export function openTerminal(env, opts = {}) {
   const mode = opts.mode || (opts.cmd ? 'cmd' : 'ps');
   const elevated = !!opts.elevated;
   const tabTitle = h('span', { class: 'wt-tt' }, '');
-  const wtBar = isWin ? h('div', { class: 'wt-bar' },
+  const wtBar = isWin && !con10 ? h('div', { class: 'wt-bar' },
     h('div', { class: 'wt-tab', title: 'Current tab' }, icon(mode === 'cmd' ? 'w-cmd' : 'w-powershell', 16), tabTitle, h('span', { class: 'wt-x no-drag', title: 'Close tab', onclick: () => win.close() }, '✕')),
     h('button', { class: 'wt-new no-drag', title: 'New tab (opens a new window)', onclick: () => env.openApp('terminal', { mode, elevated }) }, '+'),
     h('button', { class: 'wt-dd no-drag', title: 'Open a different profile', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); env.ui.showMenu(r.left, r.bottom, [{ label: 'Windows PowerShell', action: () => env.openApp('terminal', { mode: 'ps', elevated }) }, { label: 'Command Prompt', action: () => env.openApp('terminal', { mode: 'cmd', elevated }) }, 'sep', { label: 'Run as administrator…', action: () => env.elevate?.({ app: 'terminal', mode }) }, 'sep', { label: 'Settings', action: () => env.ui.toast({ title: 'Terminal', message: 'Settings are not part of the simulation.', kind: 'info' }) }]); } }, '⌄'),
     h('div', { class: 'wt-drag' })) : null;
   let wrap = termMenu ? h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, termMenu, term) : term;
-  if (isWin) wrap = h('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, wtBar, term);
-  const win = env.wm.open({ title: isWin ? 'Windows PowerShell' : `${user}@${env.sys.hostname}: ~`, icon: isWin ? (mode === 'cmd' ? 'w-cmd' : 'w-terminal') : 'terminal', width: 780, height: 480, appId: 'terminal', content: wrap, minW: 360, minH: 200, cls: 'term-win' + (isWin ? ' wt' : ''), frameless: isWin });
-  if (isWin) { wtBar.append(win.controls()); win.makeDraggable(wtBar); }
+  if (isWin) wrap = h('div', { class: con10 ? (mode === 'cmd' ? 'con10 cmd' : 'con10 ps') : '', style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } }, wtBar, term);
+  const win = env.wm.open({ title: isWin ? 'Windows PowerShell' : `${user}@${env.sys.hostname}: ~`, icon: isWin ? (mode === 'cmd' ? 'w-cmd' : con10 ? 'w-powershell' : 'w-terminal') : 'terminal', width: 780, height: 480, appId: 'terminal', content: wrap, minW: 360, minH: 200, cls: 'term-win' + (isWin && !con10 ? ' wt' : con10 ? ' con10w' : ''), frameless: isWin && !con10 });
+  if (isWin && !con10) { wtBar.append(win.controls()); win.makeDraggable(wtBar); }
   const ttyNo = ++ttyCounter;
   let overlayOpen = false;
   let state = null; // active input request
@@ -237,7 +238,7 @@ export function openTerminal(env, opts = {}) {
   win.el.addEventListener('wmresize', () => scroll());
 
   // greeting like a real session: nothing for bash; Windows prints its banner
-  if (isWin) view.write(mode === 'cmd' ? `Microsoft Windows [Version 10.0.${WIN_VERSION.build}.${WIN_VERSION.ubr}]\n(c) Microsoft Corporation. All rights reserved.\n\n` : 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nInstall the latest PowerShell for new features and improvements! https://aka.ms/PSWindows\n\n');
+  if (isWin) view.write(mode === 'cmd' ? `Microsoft Windows [Version 10.0.${winVer(env.sys).build}.${winVer(env.sys).ubr}]\n(c) Microsoft Corporation. All rights reserved.\n\n` : 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nInstall the latest PowerShell for new features and improvements! https://aka.ms/PSWindows\n\n');
   mainLoop();
   setTimeout(() => term.focus(), 30);
   if (opts.run) setTimeout(() => runLine(opts.run), 50);
