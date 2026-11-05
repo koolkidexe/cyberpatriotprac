@@ -179,6 +179,14 @@ The Oct 27-28 round is done. Note: the zip the user uploaded on Oct 29 predated 
 - Browsers: unknown http(s) sites load live in an iframe (`pg.live` in browser.js); search uses google.com/search?igu=1.
 - Report: scenario order, time warning, scoreboard link, `names: 'generic'` option (settings.reportNames).
 
+## Nov 5 round: Windows 10 image, Firefox, scoring client
+- `?os=windows10` (OS_ID windows10, OS 'windows', `env.winVer` 10, body.win10). `makeWinRound(seed, {fixed, ver})`; `windows10Round1` export. `winVer(sys)` in src/win/image.js replaces the WIN_VERSION constant.
+- Chrome → Firefox (Mozilla.Firefox) + Thunderbird (Mozilla.Thunderbird, src/apps/win-thunderbird.js). browser.js: Windows-Firefox doorhanger + aboutFirefox(); updPill only for Chrome.
+- `env.ccs` in main.js: agreement(), setUid(), stop(), resume(); `engine.paused` skips evaluate(). Report: `uid`, `stopped`; time warning removed.
+- win-shell.js: `this.v10` branches — openStart10, openSearch10, actionCenter, Win10 tray; desktop order + .lnk/[runas] overlays; `.wact` watermark for both.
+- win-settings.js: PAGES10 home grid, activation sub-page, Win10 Apps & features rows, `nsisUninstall()`. win-control.js: `uacsettings`. win-notepad.js / terminal.js: classic Win10 variants.
+- Gotcha: `ui.modal` shows one modal at a time — close a modal before calling elevate() from inside it, or the UAC prompt queues behind it forever.
+
 ## Next (agreed order)
 1. Windows polish if wanted: icacls/NTFS permissions, gpedit, richer Event Viewer, Edge/Firefox on Windows.
 2. More past-year tasks if the user sends the written list.

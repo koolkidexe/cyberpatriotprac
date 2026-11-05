@@ -425,3 +425,218 @@ table.ws-tab tr.sel td { background: #3875d7; color: #fff; }
 .wrun { width: 400px; background: #f0f0f0; border: 1px solid #888; border-radius: 8px; overflow: hidden; font: 12px "Segoe UI", system-ui; box-shadow: 0 20px 50px rgba(0,0,0,.4); }
 .wrun .b { display: flex; gap: 12px; padding: 14px; }
 .wrun input { width: 100%; height: 22px; border: 1px solid #7a7a7a; font: 12px "Segoe UI", system-ui; padding: 0 4px; }
+
+/* ---- CyberPatriot scoring client dialogs */
+.ccs-dlg { background: #f0f0f0; border: 1px solid #7a7a7a; box-shadow: 0 8px 30px rgba(0,0,0,.4); font: 12.5px 'Segoe UI', system-ui, sans-serif; color: #000; }
+.ccs-t { background: #fff; padding: 7px 10px; font-size: 12px; border-bottom: 1px solid #ddd; }
+.ccs-b { padding: 12px 16px; }
+.ccs-b p { margin: 0 0 9px; line-height: 1.35; }
+.ccs-f { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 8px 12px 12px; }
+.ccs-f label { margin-right: auto; display: flex; gap: 6px; align-items: center; }
+.ccs-in { width: 200px; font: 15px Consolas, monospace; letter-spacing: 1px; text-align: center; padding: 4px; border: 1px solid #7a7a7a; }
+
+/* ---- User Account Control Settings */
+.uac-scale { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px; font-size: 12px; background: #f4f7fb; border: 1px solid #dfe6ef; padding: 10px; }
+.uac-range { writing-mode: vertical-lr; direction: rtl; height: 200px; width: 30px; }
+.uac-desc { flex: 1; border: 1px solid #dfe6ef; padding: 14px 18px; font-size: 13px; }
+.uac-desc ul { margin: 6px 0 14px 4px; padding-left: 18px; }
+.uac-rec { display: flex; gap: 6px; color: #333; }
+.uac-rec::before { content: '🛈'; color: #0067c0; }
+
+/* ---- Mozilla Thunderbird */
+.tb { display: flex; flex-direction: column; height: 100%; background: #f9f9fb; font: 13px 'Segoe UI', system-ui, sans-serif; color: #15141a; }
+.tb-top { display: flex; align-items: center; gap: 8px; background: #e8e8ed; padding: 4px 8px 0; }
+.tb-tabs { display: flex; }
+.tb-tab { padding: 6px 18px; background: #f9f9fb; border-radius: 6px 6px 0 0; font-size: 12.5px; }
+.tb-search { width: 260px; border: 1px solid #cfcfd8; border-radius: 4px; padding: 4px 8px; margin-bottom: 4px; }
+.tb-menu { border: 0; background: transparent; font-size: 19px; cursor: pointer; padding: 0 8px 4px; }
+.tb-menu:hover { background: #d4d4dc; }
+.tb-telem { display: flex; align-items: center; gap: 12px; background: #ededf0; padding: 6px 12px; border-bottom: 1px solid #ddd; font-size: 12.5px; }
+.tb-telem span:first-child { flex: 1; }
+.tb-x { cursor: pointer; padding: 0 4px; }
+.tb-btn { border: 1px solid #cfcfd8; background: #fff; border-radius: 4px; padding: 5px 12px; cursor: pointer; font: inherit; }
+.tb-btn:hover { background: #f0f0f4; }
+.tb-body { display: flex; flex: 1; min-height: 0; }
+.tb-spaces { width: 44px; background: #1c1b22; display: flex; flex-direction: column; align-items: center; padding: 6px 0; gap: 4px; }
+.tb-space { width: 34px; height: 34px; display: grid; place-items: center; color: #fbfbfe; border-radius: 6px; cursor: pointer; font-size: 16px; }
+.tb-space.on, .tb-space:hover { background: #42414d; }
+.tb-main { flex: 1; display: flex; min-width: 0; }
+.tb-folders, .tb-events { width: 200px; border-right: 1px solid #e0e0e6; padding: 10px; background: #f4f4f7; }
+.tb-events { border-right: 0; border-left: 1px solid #e0e0e6; display: flex; flex-direction: column; gap: 8px; }
+.tb-fh { font-weight: 600; font-size: 12px; color: #5b5b66; margin-bottom: 6px; }
+.tb-f { padding: 5px 8px; border-radius: 4px; }
+.tb-f.on { background: #dbe8fb; }
+.tb-home { flex: 1; overflow: auto; padding: 22px 32px; }
+.tb-hero { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; }
+.tb-h1 { font-size: 30px; font-weight: 300; }
+.tb-sub { color: #5b5b66; }
+.tb-sec { font-size: 15px; font-weight: 600; margin: 18px 0 8px; }
+.tb-p { line-height: 1.45; color: #333; max-width: 640px; }
+.tb-cards { display: flex; flex-wrap: wrap; gap: 10px; }
+.tb-card { display: flex; align-items: center; gap: 8px; border: 1px solid #d7d7df; background: #fff; border-radius: 6px; padding: 10px 16px; cursor: pointer; font: inherit; min-width: 130px; }
+.tb-card:hover { border-color: #0060df; }
+.tb-ci { font-size: 18px; }
+.tb-empty { margin: auto; text-align: center; color: #5b5b66; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+/* ---- Firefox (Windows) update doorhanger */
+.ff-door { position: fixed; z-index: 99990; width: 330px; background: #fff; color: #15141a; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.35); padding: 14px; font: 13px 'Segoe UI', system-ui, sans-serif; }
+.ff-door::before { content: ''; position: absolute; top: -7px; right: 18px; border: 7px solid transparent; border-top: 0; border-bottom-color: #fff; }
+.ff-door-f { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.ff-primary { background: #0061e0 !important; color: #fff !important; border-color: #0061e0 !important; }
+.bx-ib.ff-badge { position: relative; }
+.bx-ib.ff-badge::after { content: ''; position: absolute; right: 4px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: #2ac3a2; }
+
+/* ===================================================================== "Activate Windows" watermark (both versions) */
+.wact { position: absolute; right: 24px; bottom: 26px; z-index: 1; color: rgba(255,255,255,.55); font: 13px var(--wfont); pointer-events: auto; user-select: none; text-shadow: 0 0 2px rgba(0,0,0,.25); }
+.wact div:first-child { font-size: 20px; line-height: 1.25; }
+
+/* ===================================================================== Windows 10 shell (body.win10) */
+body.win10 { --wfont: "Segoe UI", system-ui, -apple-system, "Noto Sans", sans-serif; }
+body.win10 #desktop { inset: 0 0 40px 0; background: #6b6b6e url(../assets/wallpaper-win10.svg) center / cover no-repeat; }
+body.win10 #desktop::after { display: none; }
+body.win10 #winlayer { inset: 0 0 40px 0; }
+body.win10 #toasts { bottom: 50px; right: 8px; }
+body.os-windows #panel.wtb.w10 { height: 40px; background: #101010; backdrop-filter: none; border-top: 0; }
+.wtb.w10 .wtb-start { width: 48px; height: 40px; }
+.wtb.w10 .wtb-start:hover { background: #2a2a2a; }
+.wtb.w10 .wtb-search { width: 344px; height: 40px; border-radius: 0; background: #f3f3f3; border: 1px solid #f3f3f3; color: #000; margin: 0; padding: 0 0 0 12px; gap: 10px; }
+.wtb.w10 .wtb-search .wsi { color: #000; }
+.wtb.w10 .wtb-search:hover { background: #fff; }
+.wtb-sq { flex: 1; border: 0; outline: 0; background: transparent; font: 14px var(--wfont); color: #000; height: 100%; }
+.wtb-sq::placeholder { color: #222; }
+.wtb.w10 .wtb-tv { width: 48px; height: 40px; border-radius: 0; }
+.wtb.w10 .wtb-app { width: 48px; height: 40px; border-radius: 0; }
+.wtb.w10 .wtb-app:hover { background: #2a2a2a; }
+.wtb.w10 .wtb-app.running .ind { width: 44px; height: 2px; background: #76b9ed; border-radius: 0; bottom: 0; }
+.wtb.w10 .wtb-app.active { background: #2f2f2f; }
+.wtb.w10 .wtb-app.active .ind { width: 48px; }
+.wtb.w10 .wtb-tray { border-radius: 0; height: 40px; }
+.wtb.w10 .wtb-clock { padding: 0 8px; font-size: 12px; line-height: 16px; text-align: center; }
+.wtb.w10 .wtb-ac { width: 40px; color: #fff; display: grid; place-items: center; background: transparent; border: 0; }
+.wtb.w10 .wtb-ac:hover, .wtb.w10 .wtb-tray:hover { background: #2a2a2a; }
+.wtb.w10 .wtb-peek { width: 6px; border-left: 1px solid #555; height: 40px; }
+/* square corners everywhere on Windows 10 */
+body.win10 .win, body.win10 .dlg, body.win10 .w-dlg, body.win10 .wrun, body.win10 .wfly, body.win10 .ctxmenu, body.win10 .dropmenu, body.win10 .toast, body.win10 .uac { border-radius: 0 !important; }
+body.win10 .win { box-shadow: 0 0 0 1px rgba(24,131,215,.75), 0 10px 30px rgba(0,0,0,.35); }
+body.win10 .ctxmenu, body.win10 .dropmenu { background: #f2f2f2; border-color: #ccc; padding: 2px 0; }
+body.win10 .toast { background: #1f1f1f; }
+/* Windows 10 UAC: blue band header */
+body.win10 .uac { background: #e6e6e6; }
+body.win10 .uac-t, body.win10 .uac-q { background: #1f6bb3; color: #fff; }
+body.win10 .uac-x { color: #fff; }
+/* desktop icons: shortcut arrow and UAC shield overlays */
+.wdi-i .ico { position: relative; }
+.ov-lnk { position: absolute; left: -2px; bottom: -2px; display: flex; }
+.ov-shield { position: absolute; right: -4px; bottom: -3px; display: flex; }
+body.win10 .wdi-i { width: 80px; height: 86px; font-size: 12px; overflow: hidden; }
+body.win10 .wdi-i.sel, body.win10 .wdi-i:focus { overflow: visible; z-index: 2; height: auto; min-height: 86px; }
+body.win10 .wdi-i span:last-child { -webkit-line-clamp: 2; }
+body.win10 .wdi-i.sel span:last-child, body.win10 .wdi-i:focus span:last-child { -webkit-line-clamp: 6; }
+body.win10 #icons.wdi { grid-template-rows: repeat(auto-fill, 88px); grid-auto-columns: 82px; }
+body.win10 .wdi-i span:last-child { word-break: normal; overflow-wrap: anywhere; }
+body.win10 .wdi-i:hover { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.22); border-radius: 0; }
+
+/* Windows 10 Start menu */
+#menu.wsm.w10sm { left: 0; bottom: 40px; transform: none; width: 640px; height: 620px; max-height: calc(100% - 50px); border-radius: 0; border: 0; background: rgba(31,31,31,.97); flex-direction: row; box-shadow: 4px -2px 20px rgba(0,0,0,.4); transition: none; }
+.w10sm-rail { width: 48px; display: flex; flex-direction: column; padding: 4px 0; }
+#menu.w10sm.wide .w10sm-rail { width: 48px; }
+.w10sm-rb { width: 48px; height: 48px; display: grid; place-items: center; background: transparent; border: 0; color: #fff; font-size: 18px; cursor: default; }
+.w10sm-rb:hover { background: #3a3a3a; }
+.w10sm-list { width: 270px; overflow-y: auto; padding: 6px 0 10px; scrollbar-width: thin; scrollbar-color: #555 transparent; }
+.w10sm-letter { padding: 10px 14px 4px; font-size: 14px; color: #fff; }
+.w10sm-i { display: flex; align-items: center; gap: 12px; width: 100%; height: 38px; padding: 0 12px; background: transparent; border: 0; color: #fff; font: 13.5px var(--wfont); text-align: left; cursor: default; }
+.w10sm-i.ind { padding-left: 34px; }
+.w10sm-i:hover { background: #3a3a3a; }
+.w10sm-chev { font-size: 11px; opacity: .8; }
+.w10sm-tiles { flex: 1; padding: 8px 12px; overflow: auto; }
+.w10sm-th { color: #fff; font-size: 12.5px; padding: 8px 4px; }
+.w10sm-tg { display: grid; grid-template-columns: repeat(3, 98px); grid-auto-rows: 98px; gap: 4px; }
+.w10sm-tile { background: #2b5797; border: 2px solid transparent; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 6px; font: 11.5px var(--wfont); padding: 4px; cursor: default; text-align: center; }
+.w10sm-tile.wide { grid-column: span 2; background: #3f3d6e; }
+.w10sm-tile:nth-child(3n) { background: #1e6aa7; }
+.w10sm-tile:hover { border-color: rgba(255,255,255,.45); }
+
+/* Windows 10 search */
+#menu.wsm.w10ss { left: 48px; bottom: 40px; transform: none; width: 760px; height: 560px; max-height: calc(100% - 50px); border-radius: 0; border: 0; background: #f3f3f3; color: #000; flex-direction: column; transition: none; box-shadow: 0 -2px 20px rgba(0,0,0,.35); }
+.w10ss-tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid #ddd; background: #fff; }
+.w10ss-tabs button { background: transparent; border: 0; border-bottom: 3px solid transparent; font: 13px var(--wfont); padding: 10px 8px 7px; color: #333; cursor: default; }
+.w10ss-tabs button.on { border-bottom-color: #0078d7; color: #000; font-weight: 600; }
+.w10ss-body { flex: 1; display: flex; min-height: 0; }
+.w10ss-list { flex: 1; overflow: auto; padding: 8px 0; }
+.w10ss .wsm-h { color: #000; font-weight: 600; font-size: 13px; padding: 8px 14px 4px; }
+.w10ss .wsm-res { color: #000; display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 14px; background: transparent; border: 0; text-align: left; font: 13px var(--wfont); cursor: default; }
+.w10ss .wsm-res:hover, .w10s-best:hover { background: #dadada; }
+.w10ss .wsm-res small { color: #555; }
+.w10ss-arr { margin-left: auto; color: #555; }
+.w10s-best { display: flex; gap: 12px; align-items: center; width: 100%; padding: 10px 14px; background: transparent; border: 0; text-align: left; font: 13px var(--wfont); color: #000; cursor: default; }
+.w10s-best.sel { background: #cce4f7; }
+.w10s-best .sub, .w10ss-detail .sub { color: #555; font-size: 12px; }
+.w10ss-detail { width: 330px; background: #fafafa; border-left: 1px solid #e3e3e3; display: flex; flex-direction: column; align-items: center; padding: 24px 0 0; }
+.w10ss-detail h3 { margin: 10px 0 2px; font-weight: 400; font-size: 18px; }
+.w10ss-detail .acts { width: 100%; border-top: 1px solid #e3e3e3; margin-top: 18px; padding-top: 6px; }
+.w10ss-detail .acts button { display: block; width: 100%; text-align: left; background: transparent; border: 0; padding: 8px 26px; font: 13px var(--wfont); color: #000; cursor: default; }
+.w10ss-detail .acts button:hover { background: #e5e5e5; }
+.w10ss-top { display: flex; gap: 8px; padding: 4px 14px 10px; }
+.w10ss-top button { width: 120px; height: 100px; border: 0; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font: 12px var(--wfont); cursor: default; }
+.w10ss-top button:hover { background: #e5e5e5; }
+.w10ss .wsm-none { padding: 20px 14px; color: #333; }
+
+/* Windows 10 Action Center */
+.w10ac { position: absolute; right: 0; top: 0; bottom: 40px; width: 380px; z-index: 9500; background: rgba(31,31,31,.97); color: #fff; display: flex; flex-direction: column; font: 13px var(--wfont); box-shadow: -4px 0 20px rgba(0,0,0,.4); animation: w10ac .15s ease-out; }
+@keyframes w10ac { from { transform: translateX(40px); opacity: 0; } }
+.w10ac-h { text-align: right; padding: 12px 16px; }
+.w10ac-h a, .w10ac-foot > a { color: #9fd0ff; font-size: 12.5px; cursor: default; }
+.w10ac-none { flex: 1; display: grid; place-items: center; color: #ccc; }
+.w10ac-foot { padding: 10px 12px 14px; }
+.w10ac-g { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin-top: 8px; }
+.w10ac-qa { height: 64px; background: #3b3b3b; border: 0; color: #fff; display: flex; flex-direction: column; justify-content: space-between; padding: 8px; font: 11.5px var(--wfont); text-align: left; cursor: default; }
+.w10ac-qa.on { background: #0063b1; }
+.w10ac-qa:hover { outline: 2px solid #777; outline-offset: -2px; }
+
+/* Windows 10 Settings */
+.wset.w10 { background: #fff; }
+.wset.w10 .wset-nav { background: #f2f2f2; }
+.wset.w10 .wset-n { border-radius: 0; }
+.wset.w10 .wset-n.sel { background: #dcdcdc; box-shadow: inset 4px 0 0 #0078d7; }
+.wset.w10 .wcard { border-radius: 0; background: #fff; border: 0; border-bottom: 1px solid #eee; }
+.wset.w10 h1 { font-weight: 400; }
+.w10-home-h { display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 10px 0 6px; }
+.w10-act { text-align: center; color: #a00; margin-bottom: 10px; }
+.w10-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; padding: 14px 10px; }
+.w10-tile { display: flex; gap: 14px; align-items: flex-start; padding: 14px 12px; border: 2px solid transparent; cursor: default; }
+.w10-tile:hover { background: #f2f2f2; border-color: #ccc; }
+.w10-tile .sub { font-size: 12px; color: #666; margin-top: 3px; }
+.w10-subnav { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 14px; font-size: 13px; }
+.w10-app { border-bottom: 1px solid #eee; cursor: default; }
+.w10-app:hover { background: #f5f5f5; }
+.w10-app.sel { background: #e6e6e6; }
+.w10-app-r { display: flex; gap: 14px; align-items: center; padding: 10px 12px; }
+.w10-app-a { display: flex; gap: 8px; align-items: center; padding: 0 12px 12px 56px; }
+.w10-app .sub { font-size: 12px; color: #666; }
+
+/* NSIS-style uninstaller */
+.nsis { width: 500px; background: #f0f0f0; border: 1px solid #888; font: 12px "Segoe UI", system-ui, sans-serif; color: #000; box-shadow: 0 20px 50px rgba(0,0,0,.4); }
+.nsis-h { display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 10px 14px; border-bottom: 1px solid #ccc; }
+.nsis-h b { display: block; margin-bottom: 4px; }
+.nsis-h div div { padding-left: 14px; }
+.nsis-b { padding: 16px 20px; min-height: 120px; display: flex; flex-direction: column; gap: 12px; }
+.nsis-p { width: 100%; height: 18px; }
+.nsis-f { display: flex; justify-content: flex-end; align-items: center; gap: 6px; padding: 10px 12px; border-top: 1px solid #ccc; }
+.nsis-brand { margin-right: auto; color: #888; }
+/* classic Notepad (Windows 10) */
+.wnp10 .wnp-menu { padding: 0; gap: 0; border-bottom: 0; font-size: 12px; background: #fff; }
+.wnp10 .wnp-menu div { padding: 3px 8px; border-radius: 0; }
+.wnp10 .wnp-menu div:hover { background: #cce8ff; }
+.wnp10 textarea { font: 14.5px Consolas, "Lucida Console", monospace; padding: 2px 4px; border-top: 1px solid #ddd; }
+.wnp10 .wnp-status { background: #f0f0f0; height: 22px; gap: 0; padding: 0; color: #000; border-top: 1px solid #d7d7d7; }
+.wnp10 .wnp-status > span { padding: 0 12px; border-left: 1px solid #d7d7d7; min-width: 40px; }
+.wnp10 .wnp-status > span:first-child { border-left: 0; }
+/* classic console host (Windows 10 PowerShell / cmd) */
+body.os-windows .con10 .term { font-family: Consolas, "Lucida Console", "DejaVu Sans Mono", monospace; font-size: 14px; padding: 2px 4px; }
+body.os-windows .con10.ps .term { background: #012456; color: #eeedf0; }
+body.os-windows .con10.cmd .term { background: #0c0c0c; color: #cccccc; }
+body.os-windows .con10.ps .term .cur.on { background: #eeedf0; color: #012456; }
+body.os-windows .con10.cmd .term .cur.on { background: #cccccc; color: #0c0c0c; }
+body.win10 .win.con10w { background: #fff; }
+.nsis .wd-t { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: #fff; border-bottom: 1px solid #ddd; }
+.nsis .wd-t span:last-child { cursor: default; padding: 0 4px; }
