@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeWinEnv } from './win-helpers.mjs';
 import { makeWinRound, FIXED_SEED } from '../src/scenarios/win-deck/index.js';
-import windowsRound1 from '../src/scenarios/win-deck/index.js';
+import windowsRound1, { windows10Round1 } from '../src/scenarios/win-deck/index.js';
 import { ScoringEngine } from '../src/core/scoring.js';
 import { System } from '../src/core/system.js';
 import * as S from '../src/win/state.js';
@@ -12,7 +12,7 @@ const SEEDS = Number(process.env.DECK_SEEDS || 12);
 
 test(`windows: ${SEEDS} random rounds start at 0, total 100 and solve to 100 in elevated PowerShell`, async () => {
   for (let seed = 0; seed <= SEEDS; seed++) {
-    const sc = seed === 0 ? makeWinRound(FIXED_SEED, { fixed: true }) : makeWinRound(seed * 7919);
+    const sc = seed === 0 ? makeWinRound(FIXED_SEED, { fixed: true }) : seed === 1 ? windows10Round1 : makeWinRound(seed * 7919, { ver: seed % 2 ? 10 : 11 });
     const total = sc.vulns.reduce((a, v) => a + v.points, 0);
     assert.equal(total, 100, `seed ${seed}: total ${total}`);
     assert.ok(sc.vulns.length >= 18 && sc.vulns.length <= 48, `seed ${seed}: ${sc.vulns.length} checks`);
@@ -67,7 +67,7 @@ test('cmd.exe built-ins and native tools', async () => {
   assert.match(await e.run('whoami'), /desktop-cp11\\student/i);
   assert.match(await e.run('net localgroup Administrators'), /student/);
   assert.match(await e.run('dir C:\\Users\\student\\Desktop /b'), /Forensics Question 1\.txt/);
-  assert.match(await e.run('type "C:\\Users\\student\\Desktop\\Forensics Question 1.txt"'), /FORENSICS QUESTION 1/);
+  assert.match(await e.run('type "C:\\Users\\student\\Desktop\\Forensics Question 1.txt"'), /This is a forensics question/);
   assert.match(await e.run('net accounts | findstr /i length'), /Minimum password length/);
   assert.match(await e.run('nosuchthing'), /is not recognized as an internal or external command/);
 });
