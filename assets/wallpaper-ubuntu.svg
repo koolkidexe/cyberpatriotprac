@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3a0f4a"/><stop offset=".38" stop-color="#7a2370"/><stop offset=".7" stop-color="#b53a62"/><stop offset="1" stop-color="#ee6a33"/>
+    </linearGradient>
+    <radialGradient id="glowR" cx="1" cy="1" r=".75"><stop offset="0" stop-color="#ff8a3d" stop-opacity=".95"/><stop offset=".45" stop-color="#e2453f" stop-opacity=".55"/><stop offset="1" stop-color="#b53a62" stop-opacity="0"/></radialGradient>
+    <radialGradient id="glowL" cx=".08" cy=".95" r=".6"><stop offset="0" stop-color="#d9479f" stop-opacity=".75"/><stop offset="1" stop-color="#7a2370" stop-opacity="0"/></radialGradient>
+    <radialGradient id="dark" cx=".3" cy=".1" r=".8"><stop offset="0" stop-color="#2a0b3c" stop-opacity=".75"/><stop offset="1" stop-color="#2a0b3c" stop-opacity="0"/></radialGradient>
+    <linearGradient id="rib1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffd1e6" stop-opacity="0"/><stop offset=".5" stop-color="#ffc6df" stop-opacity=".55"/><stop offset="1" stop-color="#ff9ec9" stop-opacity="0"/></linearGradient>
+    <linearGradient id="rib2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffb27a" stop-opacity="0"/><stop offset=".6" stop-color="#ffb27a" stop-opacity=".5"/><stop offset="1" stop-color="#ffe0b8" stop-opacity=".1"/></linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="14"/></filter>
+    <filter id="soft2"><feGaussianBlur stdDeviation="3"/></filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <rect width="1920" height="1080" fill="url(#dark)"/>
+  <rect width="1920" height="1080" fill="url(#glowR)"/>
+  <rect width="1920" height="1080" fill="url(#glowL)"/>
+  <!-- jellyfish-like translucent bell + tentacles on the lower left -->
+  <g opacity=".9" filter="url(#soft2)">
+    <path d="M60 1080C140 900 260 820 420 830C500 836 560 900 640 1080Z" fill="#ff7fb3" opacity=".18"/>
+    <path d="M120 1080C190 940 290 880 420 890C490 895 540 950 600 1080Z" fill="#ffa6c8" opacity=".22"/>
+  </g>
+  <g filter="url(#soft)" opacity=".8">
+    <path d="M-100 520C200 380 420 700 760 520S1250 240 1500 380 1900 700 2050 560" stroke="url(#rib1)" stroke-width="64" fill="none" stroke-linecap="round"/>
+    <path d="M-100 760C260 640 520 900 900 740S1380 560 1700 700 1950 880 2050 800" stroke="url(#rib2)" stroke-width="80" fill="none" stroke-linecap="round"/>
+  </g>
+  <g opacity=".55" filter="url(#soft2)">
+    <path d="M-80 600C180 470 380 760 740 590S1240 330 1500 470 1880 760 2040 620" stroke="url(#rib1)" stroke-width="5" fill="none"/>
+    <path d="M-80 640C180 520 400 790 760 630S1250 380 1500 520 1880 790 2040 670" stroke="url(#rib1)" stroke-width="3" fill="none"/>
+    <path d="M-80 820C260 720 520 960 900 800S1380 640 1700 780 1950 940 2040 880" stroke="url(#rib2)" stroke-width="5" fill="none"/>
+  </g>
+  <g fill="#fff" opacity=".35">
+    <circle cx="1180" cy="210" r="2"/><circle cx="1320" cy="120" r="1.5"/><circle cx="1650" cy="260" r="2"/><circle cx="800" cy="140" r="1.5"/><circle cx="1500" cy="620" r="2"/><circle cx="260" cy="320" r="1.5"/>
+  </g>
+</svg>
