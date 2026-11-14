@@ -253,6 +253,7 @@ export function open(env, opts = {}) {
         status.textContent = 'Installing - 0%'; let pct = 0;
         const t = setInterval(() => { pct += 20; status.textContent = `Installing - ${pct}%`; if (pct >= 100) { clearInterval(t); if (svc.status !== 'Running') S.startService(sys, 'wuauserv'); S.installUpdates(sys); render(); env.ui.toast({ title: 'Windows Update', message: 'Updates installed. Restart to finish.', kind: 'info' }); } }, 350);
       } }, pend.length ? 'Install all' : 'Check for updates')));
+    if (S.restartPending(sys).length) add(card('w-update', 'Restart required', 'Your device will finish installing updates when it restarts: ' + S.restartPending(sys).join(', '), h('button', { class: 'w-btn primary', onclick: () => env.power('reboot') }, 'Restart now')));
     for (const x of pend) add(card('w-update', x.title, svcOff ? 'Install error - 0x80070422' : 'Pending install', h('span', { class: 'sub' }, `${x.size} MB`)));
     add(h('h3', null, 'More options'), card('w-taskschd', 'Pause updates', '', h('select', { class: 'w-in', disabled: true }, h('option', null, 'Pause for 1 week'))),
       card('w-update', 'Update history', `${sys.win.installedUpdates.length + sys.win.updates.filter((x) => x.installed).length} updates installed`), card('w-settings', 'Advanced options', 'Delivery optimization, optional updates, active hours, other update settings'));

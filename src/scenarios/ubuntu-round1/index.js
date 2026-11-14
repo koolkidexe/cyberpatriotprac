@@ -137,7 +137,7 @@ export const vulns = [
   { id: 'sudo-auth', category: 'Account Policy', points: 3, title: 'sudo requires a password', check: (s) => !K.sudoNeedsNoPassword(s) },
   { id: 'ufw', category: 'Defensive Countermeasures', points: 3, title: 'Firewall protection has been enabled', check: (s) => ufwActive(s) },
   { id: 'auto-upd', category: 'Defensive Countermeasures', points: 2, title: 'Automatic checking for updates is enabled', check: (s) => K.aptPeriodic(s, 'Update-Package-Lists') >= 1 },
-  { id: 'upd-firefox', category: 'Defensive Countermeasures', points: 2, title: 'Firefox has been updated', check: (s) => pk.isInstalled(s, 'firefox') && compareVersions(pk.installedVersion(s, 'firefox'), pk.def('firefox').avail) >= 0 },
+  { id: 'upd-firefox', category: 'Defensive Countermeasures', points: 2, title: 'Firefox has been updated', check: (s) => pk.isInstalled(s, 'firefox') && compareVersions(pk.installedVersion(s, 'firefox'), pk.def('firefox').avail) >= 0 && !pk.needsRestart(s, 'firefox') },
   { id: 'sec-updates', category: 'Defensive Countermeasures', points: 3, title: 'Security updates for OpenSSL have been installed', check: (s) => K.upToDate(s, ['openssl', 'libssl3']) },
   { id: 'ssh-root', category: 'Application Security', points: 3, title: 'SSH root login has been disabled', check: (s) => ['no', 'prohibit-password', 'without-password', 'forced-commands-only'].includes(K.sshdValue(s, 'PermitRootLogin')) && pk.isInstalled(s, 'openssh-server') },
   { id: 'ssh-empty', category: 'Application Security', points: 2, title: 'SSH does not permit empty passwords', check: (s) => K.sshdValue(s, 'PermitEmptyPasswords') === 'no' && pk.isInstalled(s, 'openssh-server') },

@@ -92,3 +92,15 @@ test('server 2022: the fixed round and random rounds start at 0, total 100 and s
     assert.deepEqual(e.engine.report().penalties.map((p) => p.id), [], `seed ${seed}: penalties after solving`);
   }
 });
+
+test('Windows updates only score after a restart', async () => {
+  const e = makeWinEnv(windowsRound1);
+  const found = (id) => !!e.engine.state.found[id];
+  e.engine.evaluate();
+  await e.run('winget upgrade --id Mozilla.Firefox');
+  e.engine.evaluate();
+  assert.equal(found('ffupd'), false);
+  await e.run('shutdown /r /t 0');
+  e.engine.evaluate();
+  assert.equal(found('ffupd'), true);
+});

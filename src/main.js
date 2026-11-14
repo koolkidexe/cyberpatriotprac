@@ -13,6 +13,7 @@ import { mountVirtual, selectCatalog } from './images/mint21.js';
 import { FsView } from './core/vfs.js';
 import * as users from './core/users.js';
 import * as K from './core/checks.js';
+import * as pk from './core/packages.js';
 import mintScenario from './scenarios/mint-round1/index.js';
 import ubuntuScenario from './scenarios/ubuntu-round1/index.js';
 import { makeRound, newSeed, debianRound1 } from './scenarios/deck/index.js';
@@ -210,6 +211,15 @@ async function main() {
   window.cpsim = env;
   env.desktop = WIN ? new WinDesktop(env) : OS === 'ubuntu' ? new UbuntuDesktop(env) : new Desktop(env);
 
+  // ---- updates are only finished (and only score) after a restart: say so once whenever something new is waiting
+  const restartWaiting = () => (WIN ? WS.restartPending(sys) : pk.restartPending(sys));
+  env.restartNotified = restartWaiting().length;
+  setInterval(() => {
+    const w = restartWaiting();
+    if (w.length > env.restartNotified) ui.toast({ title: 'Restart required', message: WIN ? `${w[w.length - 1]} was updated. Restart the PC to finish installing (Start > Power > Restart, or Restart-Computer).` : 'Updates were installed. Restart the computer to finish (power menu > Restart, or: sudo reboot).', kind: 'info', ms: 9000 });
+    env.restartNotified = w.length;
+  }, 1200);
+
   // ---- scoring notifications
   engine.on('score', ({ gained, lost, penalized, cleared }) => {
     for (const v of gained) { ui.toast({ title: `You gained ${v.points} point${v.points === 1 ? '' : 's'}!`, message: v.title, kind: 'good' }); }
@@ -321,15 +331,6 @@ function winOpenPath(env, path, opts = {}) {
     return env.openApp(/\.(conf|cfg|xml|json|py|c|ps1|bat|cmd|js|php|ini)$/i.test(name) && WS.listPrograms(sys).some((p) => p.id === 'Notepad++.Notepad++') ? 'notepadpp' : 'notepad', { path: real, ...opts });
   } catch (e) { ui.alert({ title: 'Error', heading: `Could not open “${name}”`, message: e.message, icon: 'w-bad' }); return null; }
 }
-function winReboot(sys) {
-  // services set to start automatically come up; stopped/disabled stay down; user programs restart from Run keys/tasks
-  for (const s of WS.listServices(sys)) {
-    for (const p of sys.processes.filter((x) => x.svc === `win:${s.name}`)) sys.killProc(p.pid);
-    if (/^Automatic/.test(s.startType)) { s.status = 'Running'; WS.spawnFor(sys, s); } else if (s.status === 'Running' && s.startType === 'Disabled') s.status = 'Stopped'; else if (s.status === 'Running') WS.spawnFor(sys, s);
-  }
-  for (const u of WS.pendingUpdates(sys)) void u;
-  WS.tick(sys);
-  sys.touch('win');
-}
+const winReboot = (sys) => WS.reboot(sys);
 
 main().catch((e) => { console.error(e); document.getElementById('boot-msg').textContent = 'Failed to start: ' + e.message; });

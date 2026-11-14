@@ -71,7 +71,9 @@ export function open(env) {
     if (!ok) return;
     for (const n of names) pk.upgradePackage(sys, n);
     sel.clear(); draw();
-    env.ui.toast({ title: 'Update Manager', message: `${names.length} update${names.length > 1 ? 's' : ''} installed.`, kind: 'info' });
+    env.restartNotified = pk.restartPending(sys).length;
+    const again = await env.ui.confirm?.({ title: env.os === 'ubuntu' ? 'Software Updater' : 'Update Manager', heading: 'The computer needs to restart to finish installing updates.', message: `${names.length} update${names.length > 1 ? 's were' : ' was'} installed. The new version${names.length > 1 ? 's are' : ' is'} not in use until the computer restarts.`, ok: 'Restart Now…', cancel: 'Restart Later' });
+    if (again) env.power?.('reboot');
   }
   async function prefs() {
     if (env.os === 'ubuntu') { env.openApp('swprops'); return; }

@@ -26,6 +26,10 @@ export function pkgInfo(sys, name) {
 export const isInstalled = (sys, name) => !!sys.pkgState[name]?.installed;
 export const installedVersion = (sys, name) => (isInstalled(sys, name) ? sys.pkgState[name].version || PACKAGES[name]?.v : null);
 
+/** Packages that were upgraded since the last boot: the machine has to restart before the new version is in use. */
+export const restartPending = (sys) => Object.keys(sys.misc.restartPkgs || {}).filter((n) => isInstalled(sys, n));
+export const needsRestart = (sys, name) => !!sys.misc.restartPkgs?.[name] && isInstalled(sys, name);
+
 export function installedNames(sys) {
   return Object.keys(sys.pkgState).filter((n) => sys.pkgState[n].installed).sort();
 }
@@ -203,6 +207,8 @@ export function upgradePackage(sys, name) {
   const st = sys.pkgState[name];
   if (!d || !st?.installed || !d.avail) return false;
   st.version = d.avail;
+  // the new version only takes effect (and only scores) once the machine has been restarted
+  (sys.misc.restartPkgs ||= {})[name] = true;
   sys.touch('packages');
   // restarting a service on upgrade (postinst) leaves it running
   return true;

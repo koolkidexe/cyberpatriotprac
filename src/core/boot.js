@@ -22,6 +22,9 @@ export function rebootSystem(sys) {
     if (p.tty.startsWith('pts') || p.respawnId || p.user !== 'student' && p.user !== 'root') sys.killProc(p.pid);
   }
   sys.sudoTs = {}; sys.polkitTs = {};
+  // upgraded packages are now the running versions
+  delete sys.misc.restartPkgs;
+  if (sys.vfs.exists('/var/run/reboot-required')) { try { sys.vfs.unlink('/var/run/reboot-required'); } catch { /* ignore */ } }
   sys.bootTime = sys.now();
   sys.touch('boot');
 }

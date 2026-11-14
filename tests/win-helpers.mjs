@@ -1,5 +1,6 @@
 // Headless Windows environment: build a scenario machine and drive a PowerShell / cmd session.
 import { createWinShell } from '../src/win/shell.js';
+import * as S from '../src/win/state.js';
 import { ScoringEngine } from '../src/core/scoring.js';
 
 export function makeWinEnv(scenario, { elevated = true, mode = 'ps' } = {}) {
@@ -10,7 +11,7 @@ export function makeWinEnv(scenario, { elevated = true, mode = 'ps' } = {}) {
   let buf = '';
   const inputs = [];
   const launches = [];
-  const io = { write: (x) => { buf += x; }, async readLine(p) { buf += p; const v = inputs.shift(); return v === undefined ? null : v; }, launch: (app, o) => launches.push({ app, ...o }), clear() {}, exit() {}, power() {}, cols: 120 };
+  const io = { write: (x) => { buf += x; }, async readLine(p) { buf += p; const v = inputs.shift(); return v === undefined ? null : v; }, launch: (app, o) => launches.push({ app, ...o }), clear() {}, exit() {}, power(k) { if (k === 'reboot') S.reboot(sys); }, cols: 120 };
   const sh = createWinShell(sys, { user: 'student', io, elevated, mode });
   const engine = new ScoringEngine(sys, scenario);
   async function run(line, ...inp) { inputs.length = 0; inputs.push(...inp); buf = ''; await sh.run(line); return buf.replace(/\u001b\[[0-9;]*m/g, ''); }

@@ -38,6 +38,7 @@ const SOLVE = [
   ['rm ~/.config/autostart/gnome-update-helper.desktop'],
   ["sed -i 's/^ANSWER:.*/ANSWER: Lighthouse-8802/' ~/Desktop/Forensics\\ Question\\ 1.txt"],
   ["sed -i \"s/^ANSWER:.*/ANSWER: $(sudo base64 -d /home/lena/Documents/message.b64 | sed 's/.*: //')/\" ~/Desktop/Forensics\\ Question\\ 2.txt"],
+  ['sudo reboot'],
 ];
 
 test('ubuntu image identifies as Ubuntu 22.04 with GNOME bits and no Mint', () => {

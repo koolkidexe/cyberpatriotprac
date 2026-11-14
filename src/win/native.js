@@ -415,7 +415,7 @@ export function winget(ctx, argv) {
     if (!ctx.elevated) { ctx.err('Installer failed with exit code: 1603\nThe installation requires administrator privileges.\n'); return 1; }
     const targets = sw(argv, '--all') ? ups : [S.findProgram(sys, idArg)].filter(Boolean);
     if (!targets.length) { ctx.err('No installed package found matching input criteria.\n'); return 1; }
-    for (const p of targets) { if (!p.latest || p.latest === p.version) { ctx.out(`No available upgrade found.\nNo newer package versions are available from the configured sources.\n`); continue; } ctx.out(`Found ${p.name} [${p.id}] Version ${p.latest}\nThis application is licensed to you by its owner.\nMicrosoft is not responsible for, nor does it grant any licenses to, third-party packages.\nDownloading ...\n  ██████████████████████████████  ${(p.size || 5) * 1.1 | 0}.0 MB / ${(p.size || 5) * 1.1 | 0}.0 MB\nSuccessfully verified installer hash\nStarting package install...\nSuccessfully installed\n`); S.upgradeProgram(sys, p); }
+    for (const p of targets) { if (!p.latest || p.latest === p.version) { ctx.out(`No available upgrade found.\nNo newer package versions are available from the configured sources.\n`); continue; } ctx.out(`Found ${p.name} [${p.id}] Version ${p.latest}\nThis application is licensed to you by its owner.\nMicrosoft is not responsible for, nor does it grant any licenses to, third-party packages.\nDownloading ...\n  ██████████████████████████████  ${(p.size || 5) * 1.1 | 0}.0 MB / ${(p.size || 5) * 1.1 | 0}.0 MB\nSuccessfully verified installer hash\nStarting package install...\nSuccessfully installed\nRestart your PC to finish installation.\n`); S.upgradeProgram(sys, p); }
     return 0;
   }
   if (cmd === 'uninstall' || cmd === 'remove') {

@@ -135,7 +135,7 @@ export function plan(ctx, card) {
 
   // ------------------------------------------------------------- Application Updates (6), Unwanted Software (3)
   card('nppupd', 3);
-  V('Application Updates', 3, { id: 'wsupd', title: 'Wireshark has been updated', check: (s) => S.programUpToDate(s, 'WiresharkFoundation.Wireshark') });
+  V('Application Updates', 3, { id: 'wsupd', title: 'Wireshark has been updated', check: (s) => S.programUpdated(s, 'WiresharkFoundation.Wireshark') });
   ctx.solve(1, 'winget upgrade --id WiresharkFoundation.Wireshark --silent');
   ctx.apply((sys) => {
     S.listPrograms(sys).push({ id: 'GlavSoft.TightVNC', name: 'TightVNC', publisher: 'GlavSoft LLC.', version: '2.8.81.0', latest: '2.8.81.0', size: 5, dir: '/Program Files/TightVNC', exe: 'tvnserver.exe', installed: '10/21/2026' });

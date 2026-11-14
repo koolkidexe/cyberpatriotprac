@@ -39,6 +39,7 @@ const SOLVE = [
   ['rm ~/.config/autostart/update-helper.desktop'],
   ["sed -i 's/^ANSWER:.*/ANSWER: Bluebird-2291/' ~/Desktop/Forensics\\ Question\\ 1.txt"],
   ["sed -i \"s/^ANSWER:.*/ANSWER: $(sudo base64 -d /home/alex/Documents/message.b64 | sed 's/.*: //')/\" ~/Desktop/Forensics\\ Question\\ 2.txt"],
+  ['sudo reboot'],
 ];
 
 test('scenario starts at 0 points with no penalties', () => {
@@ -114,4 +115,19 @@ test('state survives a snapshot/restore round trip', async () => {
   eng2.evaluate();
   assert.equal(eng2.score(), e.engine.score());
   assert.ok(sys2.vfs.exists('/proc/cpuinfo'));
+});
+
+test('updates only score after the machine has been restarted', async () => {
+  const e = makeEnv();
+  const got = (id) => e.engine.report().found.some((v) => v.id === id);
+  e.engine.evaluate();
+  const out = await e.run('sudo apt install --only-upgrade -y openssl libssl3 chromium', 'Welcome2CP!');
+  assert.match(out, /System restart required/);
+  e.engine.evaluate();
+  assert.equal(got('sec-updates'), false);
+  assert.equal(got('upd-chromium'), false);
+  await e.run('sudo reboot');
+  e.engine.evaluate();
+  assert.equal(got('sec-updates'), true);
+  assert.equal(got('upd-chromium'), true);
 });

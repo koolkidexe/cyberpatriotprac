@@ -202,7 +202,7 @@ export function makeWinRound(seed, { fixed = false, ver = 11 } = {}) {
     penalties,
     forensics: ctx.forensics.map(({ n, text, answer }) => ({ n, text, answer })),
     /** Elevated PowerShell fixes for every task, in a safe order. Used by tests/windows.test.mjs. */
-    solution: ctx.solves.slice().sort((a, b) => a.phase - b.phase || a.order - b.order).map(({ cmd, input }) => [cmd, ...input]),
+    solution: ctx.solves.slice().sort((a, b) => a.phase - b.phase || a.order - b.order).map(({ cmd, input }) => [cmd, ...input]).concat([['Restart-Computer -Force']]),
     createMachine(opts = {}) {
       const sys = buildWindows11({ ...opts, ver: V });
       applyBase(sys, ctx);

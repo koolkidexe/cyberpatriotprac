@@ -346,7 +346,7 @@ export const CARDS = [
 
   // ====================================================================== Operating System Updates
   { id: 'updates', cat: OSUPD, pts: 4, plan(ctx) {
-    ctx.vuln({ id: 'updates', title: 'The majority of Windows updates are installed', check: (s) => !S.pendingUpdates(s).some((u) => u.security) });
+    ctx.vuln({ id: 'updates', title: 'The majority of Windows updates are installed', check: (s) => S.updatesApplied(s) });
     ctx.solve(1, 'Install-WindowsUpdate -AcceptAll -IgnoreReboot');
   } },
   { id: 'autoupd', cat: OSUPD, pts: 3, plan(ctx) {
@@ -363,20 +363,20 @@ export const CARDS = [
 
   // ====================================================================== Application Updates
   { id: 'nppupd', cat: APPUPD, pts: 3, plan(ctx) {
-    ctx.vuln({ id: 'nppupd', title: 'Notepad++ has been updated', check: (s) => S.programUpToDate(s, 'Notepad++.Notepad++') });
+    ctx.vuln({ id: 'nppupd', title: 'Notepad++ has been updated', check: (s) => S.programUpdated(s, 'Notepad++.Notepad++') });
     ctx.solve(1, 'winget upgrade --id Notepad++.Notepad++ --silent');
   } },
   { id: 'ffupd', cat: APPUPD, pts: 3, plan(ctx) {
-    ctx.vuln({ id: 'ffupd', title: 'Firefox has been updated', check: (s) => S.programUpToDate(s, 'Mozilla.Firefox') });
+    ctx.vuln({ id: 'ffupd', title: 'Firefox has been updated', check: (s) => S.programUpdated(s, 'Mozilla.Firefox') });
     ctx.solve(1, 'winget upgrade --id Mozilla.Firefox --silent');
   } },
   { id: 'tbupd', cat: APPUPD, pts: 3, when: (ctx) => !ctx.server, plan(ctx) {
-    ctx.vuln({ id: 'tbupd', title: 'Thunderbird has been updated', check: (s) => S.programUpToDate(s, 'Mozilla.Thunderbird') });
+    ctx.vuln({ id: 'tbupd', title: 'Thunderbird has been updated', check: (s) => S.programUpdated(s, 'Mozilla.Thunderbird') });
     ctx.solve(1, 'winget upgrade --id Mozilla.Thunderbird --silent');
   } },
   { id: '7zupd', cat: APPUPD, pts: 2, plan(ctx) {
     ctx.apply((sys) => { const p = S.listPrograms(sys).find((x) => x.id === '7zip.7zip'); p.version = '19.00'; p.name = '7-Zip 19.00 (x64)'; });
-    ctx.vuln({ id: '7zupd', title: '7-Zip has been updated', check: (s) => S.programUpToDate(s, '7zip.7zip') });
+    ctx.vuln({ id: '7zupd', title: '7-Zip has been updated', check: (s) => S.programUpdated(s, '7zip.7zip') });
     ctx.solve(1, 'winget upgrade --id 7zip.7zip --silent');
   } },
 

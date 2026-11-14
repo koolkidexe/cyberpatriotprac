@@ -465,7 +465,7 @@ export function open(env, opts = {}) {
     env.ui.modal((d) => { close = d; return h('div', { class: 'w-dlg', style: { width: '560px' } }, h('div', { class: 'wd-t' }, h('span', null, 'About Mozilla Firefox'), h('span', { onclick: () => d(false) }, '✕')),
       h('div', { style: { display: 'flex', gap: '20px', padding: '22px', background: 'radial-gradient(circle at 20% 30%,#3b2a7a,#14123a)', color: '#fff' } }, icon('firefox', 96), h('div', null, h('div', { style: { fontSize: '30px', fontWeight: 300 } }, 'Firefox Browser'), body))); });
   }
-  const S_upgrade = (p) => { p.version = p.latest; sys.touch('win'); };
+  const S_upgrade = (p) => { p.version = p.latest; p.restart = true; sys.touch('win'); };
   function doorhanger() {
     if (!ffOutdated() || opts.popup || env.settings.ffUpdNotNow) return;
     const r = menuBtn.getBoundingClientRect();

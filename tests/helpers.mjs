@@ -2,6 +2,7 @@
 import { createShell } from '../src/shell/index.js';
 import mint from '../src/scenarios/mint-round1/index.js';
 import ubuntu from '../src/scenarios/ubuntu-round1/index.js';
+import { rebootSystem } from '../src/core/boot.js';
 import { ScoringEngine } from '../src/core/scoring.js';
 
 export function makeEnv({ user = 'student', seed = 1, os = 'mint', scenario: sc } = {}) {
@@ -19,6 +20,7 @@ export function makeEnv({ user = 'student', seed = 1, os = 'mint', scenario: sc 
     async readLine(prompt, o) { buf += prompt + (o && o.echo === false ? '' : ''); const v = inputs.shift(); return v === undefined ? null : v; },
     async editor(opts) { editors.push(opts); const e = editors.script?.shift(); if (!e) return null; if (opts.save) { const r = opts.save(e); if (!r.ok) { buf += `[ Error writing ${opts.path}: ${r.err} ]\n`; return null; } } return e; },
     launch(app, o) { launches.push({ app, ...o }); },
+    power(k) { if (k === 'reboot') rebootSystem(sys); },
     clear() {}, exit() { buf += '[exit]'; }, cols: 80, rows: 24,
   };
   const sh = createShell(sys, { user, io });

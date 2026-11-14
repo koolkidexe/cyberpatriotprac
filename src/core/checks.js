@@ -190,7 +190,7 @@ export { users, pk, sv, ufwActive };
 // ---- added for the past-season task types
 /** All named packages are installed and at the newest available version. */
 export function upToDate(sys, names) {
-  return names.every((n) => pk.isInstalled(sys, n) && compareVersions(pk.installedVersion(sys, n), pk.def(n).avail || pk.installedVersion(sys, n)) >= 0);
+  return names.every((n) => pk.isInstalled(sys, n) && compareVersions(pk.installedVersion(sys, n), pk.def(n).avail || pk.installedVersion(sys, n)) >= 0 && !pk.needsRestart(sys, n));
 }
 /** The user has to choose a new password at next login (shadow "last change" field is 0, as set by `passwd -e` / `chage -d 0`). */
 export function mustChangePassword(sys, name) {

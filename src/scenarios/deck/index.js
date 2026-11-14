@@ -140,7 +140,7 @@ export function makeRound(flavor, seed, { fixed = null } = {}) {
     penalties,
     forensics: ctx.forensics.map(({ n, text, answer }) => ({ n, text, answer })),
     /** The terminal fix for every task, in a safe order (forensics first). Used by tests/deck.test.mjs. */
-    solution: ctx.solves.slice().sort((a, b) => a.phase - b.phase || a.order - b.order).map(({ cmd, input }) => [cmd, ...input]),
+    solution: ctx.solves.slice().sort((a, b) => a.phase - b.phase || a.order - b.order).map(({ cmd, input }) => [cmd, ...input]).concat([['sudo reboot']]),
     createMachine(opts = {}) {
       const sys = (flavor === 'debian' ? buildDebian12 : os === 'ubuntu' ? buildUbuntu22 : buildMint21)(opts);
       applyBase(sys, ctx, flavor);

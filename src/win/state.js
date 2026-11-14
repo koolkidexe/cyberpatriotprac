@@ -389,12 +389,28 @@ export function upgradeProgram(sys, q) {
   const p = typeof q === 'object' ? q : findProgram(sys, q);
   if (!p) throw new WinError('No installed package found matching input criteria.', 0x8a150014);
   if (!p.latest || p.latest === p.version) return false;
-  p.version = p.latest; touch(sys); return true;
+  p.version = p.latest; p.restart = true; touch(sys); return true;
 }
 export const programUpToDate = (sys, id) => { const p = W(sys).programs.find((x) => x.id === id); return !!p && (!p.latest || p.latest === p.version); };
+/** Updated and the PC has been restarted since (updates only score after a restart). */
+export const programUpdated = (sys, id) => programUpToDate(sys, id) && !W(sys).programs.find((x) => x.id === id).restart;
+export const updatesApplied = (sys) => !W(sys).updates.some((u) => u.security && (!u.installed || u.restart));
+/** What is waiting for a restart: installed Windows updates and upgraded programs. */
+export const restartPending = (sys) => [...W(sys).updates.filter((u) => u.installed && u.restart).map((u) => u.title || u.kb), ...W(sys).programs.filter((p) => p.restart).map((p) => p.name)];
+/** Restart the PC: automatic services come back, stopped ones stay down, pending updates finish installing. */
+export function reboot(sys) {
+  for (const s of listServices(sys)) {
+    for (const p of sys.processes.filter((x) => x.svc === `win:${s.name}`)) sys.killProc(p.pid);
+    if (/^Automatic/.test(s.startType)) { s.status = 'Running'; spawnFor(sys, s); } else if (s.status === 'Running' && s.startType === 'Disabled') s.status = 'Stopped'; else if (s.status === 'Running') spawnFor(sys, s);
+  }
+  for (const u of W(sys).updates) delete u.restart;
+  for (const p of W(sys).programs) delete p.restart;
+  tick(sys);
+  touch(sys);
+}
 export const pendingUpdates = (sys) => W(sys).updates.filter((u) => !u.installed);
 export function installUpdates(sys, which = null) {
-  for (const u of W(sys).updates) if (!u.installed && (!which || which.includes(u.kb))) { u.installed = true; u.installedOn = sys.now(); }
+  for (const u of W(sys).updates) if (!u.installed && (!which || which.includes(u.kb))) { u.installed = true; u.installedOn = sys.now(); if (u.security) u.restart = true; }
   touch(sys);
 }
 

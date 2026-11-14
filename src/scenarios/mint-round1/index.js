@@ -141,7 +141,7 @@ export const vulns = [
   // Defensive Countermeasures (10)
   { id: 'ufw', category: 'Defensive Countermeasures', points: 3, title: 'Firewall protection has been enabled', check: (s) => ufwActive(s) },
   { id: 'auto-upd', category: 'Defensive Countermeasures', points: 2, title: 'Automatic checking for updates is enabled', check: (s) => K.aptPeriodic(s, 'Update-Package-Lists') >= 1 },
-  { id: 'upd-chromium', category: 'Defensive Countermeasures', points: 2, title: 'Chromium has been updated', check: (s) => pk.isInstalled(s, 'chromium') && compareVersions(pk.installedVersion(s, 'chromium'), pk.def('chromium').avail) >= 0 },
+  { id: 'upd-chromium', category: 'Defensive Countermeasures', points: 2, title: 'Chromium has been updated', check: (s) => pk.isInstalled(s, 'chromium') && compareVersions(pk.installedVersion(s, 'chromium'), pk.def('chromium').avail) >= 0 && !pk.needsRestart(s, 'chromium') },
   { id: 'sec-updates', category: 'Defensive Countermeasures', points: 3, title: 'Security updates for OpenSSL have been installed', check: (s) => K.upToDate(s, ['openssl', 'libssl3']) },
   // Application Security (11)
   { id: 'ssh-root', category: 'Application Security', points: 3, title: 'SSH root login has been disabled', check: (s) => ['no', 'prohibit-password', 'without-password', 'forced-commands-only'].includes(K.sshdValue(s, 'PermitRootLogin')) && pk.isInstalled(s, 'openssh-server') },

@@ -165,6 +165,7 @@ async function aptInstall(ctx, o, specs) {
   for (const n of upgrades) { const from = pk.installedVersion(sys, n); pk.upgradePackage(sys, n); dpkgLog(sys, 'upgrade', n, from, PACKAGES[n].avail); ctx.out(`Setting up ${n} (${PACKAGES[n].avail}) ...\n`); }
   for (const n of reinstall) ctx.out(`Setting up ${n} (${pk.installedVersion(sys, n)}) ...\n`);
   ctx.out('Processing triggers for man-db (2.10.2-1) ...\n');
+  if (upgrades.length) restartNote(ctx);
   for (const n of names) { if (sys.pkgState[n]) sys.pkgState[n].auto = false; }
   historyLog(ctx, `apt ${ctx.name === 'apt-get' ? 'install' : 'install'} ${names.join(' ')}`, 'Install', instNames);
   return 0;
@@ -231,8 +232,15 @@ async function aptUpgrade(ctx, o, full) {
   for (const u of list) ctx.out(`Preparing to unpack .../${u.name}_${u.to}_${ARCH}.deb ...\nUnpacking ${u.name} (${u.to}) over (${u.from}) ...\n`);
   for (const u of list) { pk.upgradePackage(sys, u.name); dpkgLog(sys, 'upgrade', u.name, u.from, u.to); ctx.out(`Setting up ${u.name} (${u.to}) ...\n`); }
   ctx.out('Processing triggers for man-db (2.10.2-1) ...\nProcessing triggers for desktop-file-utils (0.26-1ubuntu3) ...\n');
+  if (list.length) restartNote(ctx);
   historyLog(ctx, `apt ${full ? 'full-upgrade' : 'upgrade'}`, 'Upgrade', list.map((u) => u.name));
   return 0;
+}
+
+/** Upgrades only take effect after a restart (the simulator scores them the same way). */
+function restartNote(ctx) {
+  try { ctx.sys.vfs.writeFile('/var/run/reboot-required', '*** System restart required ***\n'); } catch { /* ignore */ }
+  ctx.out('\n*** System restart required ***\nRestart the computer (for example with: sudo reboot) to finish installing the updates.\n');
 }
 
 async function aptUpdate(ctx, o) {

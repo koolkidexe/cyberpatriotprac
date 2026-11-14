@@ -138,7 +138,7 @@ export function chromeSettings(ctx, sub) {
     const W = ctx.env.sys.win; const prog = W.programs.find((p) => p.id === 'Google.Chrome');
     const pending = prog && prog.latest && prog.version !== prog.latest;
     const st = h('div', { class: 'cr-sub' });
-    const relaunch = h('button', { class: 'cr-btn', style: { display: 'none' }, title: 'Restart Chrome to finish updating', onclick: () => { prog.version = prog.latest; ctx.env.sys.touch('win'); ctx.relaunch?.(); } }, 'Relaunch');
+    const relaunch = h('button', { class: 'cr-btn', style: { display: 'none' }, title: 'Restart Chrome to finish updating', onclick: () => { prog.version = prog.latest; prog.restart = true; ctx.env.sys.touch('win'); ctx.relaunch?.(); } }, 'Relaunch');
     main.append(head('About Chrome'), card(h('div', { class: 'cr-about' }, icon('w-chrome', 40), h('div', { style: { flex: 1 } }, h('div', { style: { fontSize: '15px' } }, 'Google Chrome'), st,
       h('div', { class: 'cr-sub' }, `Version ${prog?.version || ''} (Official Build) (64-bit)`)), relaunch)));
     if (!pending) st.textContent = 'Chrome is up to date';
